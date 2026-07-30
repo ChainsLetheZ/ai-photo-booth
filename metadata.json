@@ -1,0 +1,7 @@
+{
+  "name": "Remix: UX ML4 Party",
+  "description": "An interactive event photo booth where participant photos become building blocks to form the UX ML4 logo.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}

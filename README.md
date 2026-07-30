@@ -1,20 +1,43 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
-</div>
+# Bosch AI Future Portraits
 
-# Run and deploy your AI Studio app
+Hybrid Lite prototype for the Bosch Supplier Conference.
 
-This contains everything you need to run your app locally.
+The experience follows:
 
-View your app in AI Studio: https://ai.studio/apps/6cae96fd-47e4-49bb-a376-95d2efe9878f
+`Human Input → AI Read → AI Response → AI Direct → 3-2-1 Capture → AI Create → Collective Layer`
 
-## Run Locally
+## Routes
 
-**Prerequisites:**  Node.js
+- `/booth` — camera experience and Future Portrait creation
+- `/wall` — live collective display
 
+The booth posts completed portraits to the local Express server. The wall receives
+new records over Server-Sent Events. `localStorage` and `BroadcastChannel` provide
+a same-device fallback.
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+## Run locally
+
+```bash
+npm install
+npm run dev
+```
+
+Open <http://localhost:3000/booth> and <http://localhost:3000/wall>.
+
+For camera access from another device on the LAN:
+
+```bash
+npm run dev:https
+```
+
+The HTTPS helper requires `openssl` and creates a local certificate in `.cert/`.
+
+## Prototype behavior
+
+- Primary Energy is touch-first: Motion, Intelligence, Life, or Impact.
+- Face count uses the browser `FaceDetector` API when available and falls back to
+  Single mode.
+- Gesture readiness is based on movement followed by a held pose. A visible touch
+  fallback is always available.
+- Future Portrait and Co-Creation Card are composed locally in Canvas.
+- Event-session results are in memory and capped at 48 records.

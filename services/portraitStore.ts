@@ -15,7 +15,18 @@ function readLocal(): PortraitRecord[] {
 }
 
 function writeLocal(records: PortraitRecord[]) {
-  localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(records.slice(-40)));
+  // Full-resolution data URLs exhaust the small localStorage quota quickly.
+  // Keep only as many recent fallbacks as the browser can actually persist,
+  // and never let a local fallback failure block publishing to the server.
+  let recent = records.slice(-8);
+  while (recent.length > 0) {
+    try {
+      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(recent));
+      return;
+    } catch {
+      recent = recent.slice(1);
+    }
+  }
 }
 
 export async function listPortraits(): Promise<PortraitRecord[]> {

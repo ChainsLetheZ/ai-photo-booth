@@ -1,285 +1,302 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import BrandBar from '../components/BrandBar';
 import SignalField from '../components/SignalField';
+import PerceptionDebugOverlay from '../debug/PerceptionDebugOverlay';
+import {
+  BrowserCameraService,
+  blobToDataUrl,
+  type CameraStatus,
+} from '../camera/CameraService';
 import {
   DIRECTION_COPY,
   ENERGY_CONFIG,
   EVENT,
-  SECONDARY_COPY,
 } from '../constants';
+import { interactionConfig } from '../config/interactionConfig';
+import {
+  InteractionController,
+  type InteractionEngineSnapshot,
+} from '../interaction/InteractionController';
+import { getFallbackNarrative } from '../narrative/narrativeFallbacks';
+import {
+  generateNarrative,
+  type NarrativeMetadata,
+} from '../narrative/NarrativeService';
 import { publishPortrait } from '../services/portraitStore';
 import { renderFuturePortrait } from '../services/portraitRenderer';
 import type {
   BehaviorReading,
-  BoothPhase,
-  GroupMode,
   PortraitRecord,
   PrimaryEnergy,
-  SecondaryDimension,
 } from '../types';
-
-type CameraState = 'starting' | 'ready' | 'blocked' | 'unavailable';
 
 const ENERGY_ORDER = Object.keys(ENERGY_CONFIG) as PrimaryEnergy[];
 
-function modeFromCount(count: number): GroupMode {
-  if (count >= 3) return 'Group';
-  if (count === 2) return 'Pair';
-  return 'Single';
-}
-
-function chooseSecondary(
-  count: number,
-  movement: number,
-  cohesion: number,
-): SecondaryDimension {
-  if (count > 1 && cohesion > 0.52) return 'Collaboration';
-  if (movement > 0.12) return 'Momentum';
-  if (movement < 0.045) return 'Precision';
-  return 'Exploration';
-}
-
-function CameraGlyph() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M7.8 5.5 9.1 3.8h5.8l1.3 1.7H20a2 2 0 0 1 2 2v10.7a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V7.5a2 2 0 0 1 2-2h3.8Z" />
-      <circle cx="12" cy="12.7" r="4.2" />
-    </svg>
-  );
+function makeFallbackCapture(primary: PrimaryEnergy | null) {
+  const canvas = document.createElement('canvas');
+  canvas.width = 1280;
+  canvas.height = 960;
+  const context = canvas.getContext('2d');
+  if (!context) throw new Error('Canvas is unavailable.');
+  const gradient = context.createLinearGradient(0, 0, canvas.width, canvas.height);
+  gradient.addColorStop(0, '#153B55');
+  gradient.addColorStop(1, primary ? ENERGY_CONFIG[primary].color : '#00629A');
+  context.fillStyle = gradient;
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  context.fillStyle = 'rgba(255,255,255,.1)';
+  context.beginPath();
+  context.arc(640, 410, 180, 0, Math.PI * 2);
+  context.fill();
+  context.fillRect(350, 590, 580, 420);
+  context.fillStyle = '#FFFFFF';
+  context.font = '600 34px Arial';
+  context.textAlign = 'center';
+  context.fillText('CAMERA PREVIEW', 640, 875);
+  return canvas.toDataURL('image/jpeg', 0.9);
 }
 
 export default function BoothPage() {
-  const [phase, setPhase] = useState<BoothPhase>('idle');
-  const [cameraState, setCameraState] = useState<CameraState>('starting');
-  const [primary, setPrimary] = useState<PrimaryEnergy | null>(null);
-  const [reading, setReading] = useState<BehaviorReading | null>(null);
-  const [portrait, setPortrait] = useState<PortraitRecord | null>(null);
+  const [cameraStatus, setCameraStatus] = useState<CameraStatus>('starting');
+  const [engine, setEngine] = useState<InteractionEngineSnapshot | null>(null);
   const [countdown, setCountdown] = useState(3);
-  const [readyProgress, setReadyProgress] = useState(0);
-  const [faces, setFaces] = useState(1);
-  const [motion, setMotion] = useState(0);
+  const [capturedImage, setCapturedImage] = useState<string | null>(null);
+  const [portrait, setPortrait] = useState<PortraitRecord | null>(null);
+  const [resultNarrative, setResultNarrative] = useState('');
   const [error, setError] = useState('');
 
   const videoRef = useRef<HTMLVideoElement>(null);
-  const streamRef = useRef<MediaStream | null>(null);
-  const sampleCanvasRef = useRef<HTMLCanvasElement>(document.createElement('canvas'));
-  const previousFrameRef = useRef<Uint8ClampedArray | null>(null);
-  const motionSamplesRef = useRef<number[]>([]);
-  const detectedFacesRef = useRef(1);
-  const directionStartedRef = useRef(0);
-  const motionSeenRef = useRef(false);
+  const cameraRef = useRef<BrowserCameraService | null>(null);
+  const controllerRef = useRef<InteractionController | null>(null);
+  const publishedIdRef = useRef<string | null>(null);
+  const generationStartedRef = useRef(false);
+  const debug = useMemo(
+    () => new URLSearchParams(window.location.search).get('debug') === 'true',
+    [],
+  );
 
-  const startCamera = useCallback(async () => {
-    if (!navigator.mediaDevices?.getUserMedia) {
-      setCameraState('unavailable');
-      return;
-    }
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: 'user',
-          width: { ideal: 1440 },
-          height: { ideal: 1080 },
-        },
-        audio: false,
+  const state = engine?.state ?? 'IDLE';
+  const primary = engine?.primary ?? null;
+  const secondary = engine?.secondary ?? null;
+  const mode = engine?.mode ?? 'Single';
+  const features = engine?.features;
+  const peopleCount = features?.personCount ?? 0;
+  const activeColor = primary ? ENERGY_CONFIG[primary].color : '#00629A';
+  const direction = DIRECTION_COPY[mode];
+  const responseNarrative =
+    primary && secondary ? getFallbackNarrative(primary, secondary) : null;
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return undefined;
+    const camera = new BrowserCameraService(video);
+    const controller = new InteractionController(video, setEngine);
+    cameraRef.current = camera;
+    controllerRef.current = controller;
+    setEngine(controller.getSnapshot());
+
+    let cancelled = false;
+    camera
+      .start()
+      .then(async () => {
+        if (cancelled) return;
+        setCameraStatus(camera.getStatus());
+        controller.cameraReady();
+        try {
+          await controller.start();
+        } catch {
+          // Camera and touch fallback remain fully usable without MediaPipe.
+        }
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setCameraStatus(camera.getStatus());
       });
-      streamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        await videoRef.current.play();
-      }
-      setCameraState('ready');
-    } catch {
-      setCameraState('blocked');
-    }
+
+    return () => {
+      cancelled = true;
+      controller.close();
+      camera.stop();
+    };
   }, []);
 
   useEffect(() => {
-    startCamera();
-    return () => streamRef.current?.getTracks().forEach((track) => track.stop());
-  }, [startCamera]);
-
-  useEffect(() => {
-    if (cameraState !== 'ready') return undefined;
-    const canvas = sampleCanvasRef.current;
-    canvas.width = 64;
-    canvas.height = 48;
-    const context = canvas.getContext('2d', { willReadFrequently: true });
-    if (!context) return undefined;
-
-    const interval = window.setInterval(() => {
-      const video = videoRef.current;
-      if (!video || video.readyState < 2) return;
-      context.drawImage(video, 0, 0, canvas.width, canvas.height);
-      const frame = context.getImageData(0, 0, canvas.width, canvas.height).data;
-      const previous = previousFrameRef.current;
-      let delta = 0;
-      if (previous) {
-        for (let index = 0; index < frame.length; index += 16) {
-          delta += Math.abs(frame[index] - previous[index]);
-          delta += Math.abs(frame[index + 1] - previous[index + 1]);
-          delta += Math.abs(frame[index + 2] - previous[index + 2]);
-        }
-        delta /= (frame.length / 16) * 3 * 255;
-      }
-      previousFrameRef.current = new Uint8ClampedArray(frame);
-      setMotion(delta);
-      motionSamplesRef.current = [...motionSamplesRef.current.slice(-24), delta];
-
-      if (phase === 'direction') {
-        if (delta > 0.055) motionSeenRef.current = true;
-        const elapsed = Date.now() - directionStartedRef.current;
-        const stableAfterMovement = motionSeenRef.current && delta < 0.04;
-        const progress = stableAfterMovement
-          ? Math.min(100, readyProgress + 22)
-          : Math.min(86, (elapsed / 5000) * 86);
-        setReadyProgress(progress);
-      }
-    }, 180);
-
-    return () => window.clearInterval(interval);
-  }, [cameraState, phase, readyProgress]);
-
-  useEffect(() => {
-    if (cameraState !== 'ready' || (phase !== 'reading' && phase !== 'idle')) return undefined;
-    const Detector = (window as typeof window & {
-      FaceDetector?: new (options: { fastMode: boolean; maxDetectedFaces: number }) => {
-        detect: (source: HTMLVideoElement) => Promise<Array<{ boundingBox: DOMRectReadOnly }>>;
-      };
-    }).FaceDetector;
-    if (!Detector) return undefined;
-    const detector = new Detector({ fastMode: true, maxDetectedFaces: 12 });
-    const interval = window.setInterval(async () => {
-      if (!videoRef.current || videoRef.current.readyState < 2) return;
-      try {
-        const results = await detector.detect(videoRef.current);
-        const count = Math.max(1, results.length);
-        detectedFacesRef.current = count;
-        setFaces(count);
-      } catch {
-        // Keep the last stable count.
-      }
-    }, 700);
-    return () => window.clearInterval(interval);
-  }, [cameraState, phase]);
-
-  useEffect(() => {
-    if (phase !== 'reading' || !primary) return undefined;
-    motionSamplesRef.current = [];
-    const timer = window.setTimeout(() => {
-      const samples = motionSamplesRef.current;
-      const movement =
-        samples.length > 0 ? samples.reduce((sum, value) => sum + value, 0) / samples.length : 0.04;
-      const peopleCount = detectedFacesRef.current;
-      const cohesion = peopleCount > 1 ? Math.max(0.56, 0.82 - movement) : 0.44;
-      const result: BehaviorReading = {
-        peopleCount,
-        mode: modeFromCount(peopleCount),
-        movement,
-        stability: Math.max(0, 1 - movement * 5),
-        cohesion,
-        secondary: chooseSecondary(peopleCount, movement, cohesion),
-      };
-      setReading(result);
-      setPhase('response');
-    }, 1900);
+    if (state !== 'ANALYZING_BEHAVIOR') return undefined;
+    const timer = window.setTimeout(
+      () => controllerRef.current?.completeAnalysis(),
+      interactionConfig.analysisDurationMs,
+    );
     return () => window.clearTimeout(timer);
-  }, [phase, primary]);
+  }, [state]);
 
   useEffect(() => {
-    if (phase !== 'response') return undefined;
-    const timer = window.setTimeout(() => {
-      directionStartedRef.current = Date.now();
-      motionSeenRef.current = false;
-      setReadyProgress(0);
-      setPhase('direction');
-    }, 2600);
+    if (state !== 'AI_RESPONSE') return undefined;
+    const timer = window.setTimeout(
+      () => controllerRef.current?.completeResponse(),
+      interactionConfig.responseDurationMs,
+    );
     return () => window.clearTimeout(timer);
-  }, [phase]);
+  }, [state]);
 
   useEffect(() => {
-    if (phase === 'direction' && readyProgress >= 100) {
-      const timer = window.setTimeout(() => beginCountdown(), 350);
-      return () => window.clearTimeout(timer);
-    }
-    return undefined;
-  }, [phase, readyProgress]);
+    if (state !== 'ACTION_INSTRUCTION') return undefined;
+    const timer = window.setTimeout(
+      () => controllerRef.current?.beginActionTracking(),
+      interactionConfig.instructionLeadInMs,
+    );
+    return () => window.clearTimeout(timer);
+  }, [state]);
 
-  const selectEnergy = (energy: PrimaryEnergy) => {
-    setPrimary(energy);
-    setReading(null);
-    setPhase('reading');
-  };
+  useEffect(() => {
+    if (state !== 'POSE_READY') return undefined;
+    const timer = window.setTimeout(
+      () => controllerRef.current?.beginCountdown(),
+      interactionConfig.readyHoldMs,
+    );
+    return () => window.clearTimeout(timer);
+  }, [state]);
 
-  const captureFrame = () => {
-    const canvas = document.createElement('canvas');
-    canvas.width = 1280;
-    canvas.height = 960;
-    const context = canvas.getContext('2d');
-    if (!context) throw new Error('Canvas is unavailable');
-    const video = videoRef.current;
-    if (cameraState === 'ready' && video && video.readyState >= 2) {
-      context.drawImage(video, 0, 0, canvas.width, canvas.height);
-    } else {
-      const gradient = context.createLinearGradient(0, 0, canvas.width, canvas.height);
-      gradient.addColorStop(0, '#153B55');
-      gradient.addColorStop(1, primary ? ENERGY_CONFIG[primary].color : '#00629A');
-      context.fillStyle = gradient;
-      context.fillRect(0, 0, canvas.width, canvas.height);
-      context.fillStyle = 'rgba(255,255,255,.1)';
-      context.beginPath();
-      context.arc(640, 410, 180, 0, Math.PI * 2);
-      context.fill();
-      context.fillRect(350, 590, 580, 420);
-      context.fillStyle = '#FFFFFF';
-      context.font = '600 34px Arial';
-      context.textAlign = 'center';
-      context.fillText('CAMERA PREVIEW', 640, 875);
-    }
-    return canvas.toDataURL('image/jpeg', 0.9);
-  };
-
-  const createPortrait = async () => {
-    if (!primary || !reading) return;
-    setPhase('creating');
-    try {
-      const record = await renderFuturePortrait(captureFrame(), primary, reading);
-      setPortrait(record);
-      await publishPortrait(record);
-      setPhase('result');
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Unable to create the portrait');
-      setPhase('direction');
-    }
-  };
-
-  const beginCountdown = () => {
-    if (phase !== 'direction') return;
+  useEffect(() => {
+    if (state !== 'COUNTDOWN') return undefined;
     setCountdown(3);
-    setPhase('countdown');
-    let value = 3;
+    let current = 3;
     const timer = window.setInterval(() => {
-      value -= 1;
-      if (value === 0) {
+      current -= 1;
+      if (current <= 0) {
         window.clearInterval(timer);
-        createPortrait();
+        controllerRef.current?.countdownComplete();
       } else {
-        setCountdown(value);
+        setCountdown(current);
       }
     }, 1000);
-  };
+    return () => window.clearInterval(timer);
+  }, [state]);
+
+  useEffect(() => {
+    if (state !== 'CAPTURE') return;
+    let cancelled = false;
+    const capture = async () => {
+      try {
+        const camera = cameraRef.current;
+        const dataUrl =
+          camera?.getStatus() === 'ready'
+            ? await blobToDataUrl(await camera.captureFrame())
+            : makeFallbackCapture(primary);
+        if (cancelled) return;
+        setCapturedImage(dataUrl);
+        generationStartedRef.current = false;
+        controllerRef.current?.captureComplete();
+      } catch (cause) {
+        setError(cause instanceof Error ? cause.message : 'Capture failed.');
+        controllerRef.current?.fail();
+      }
+    };
+    capture();
+    return () => {
+      cancelled = true;
+    };
+  }, [state, primary]);
+
+  useEffect(() => {
+    if (
+      state !== 'GENERATING' ||
+      !capturedImage ||
+      !primary ||
+      !secondary ||
+      generationStartedRef.current
+    ) {
+      return;
+    }
+    const generationEngine = controllerRef.current?.getSnapshot();
+    if (!generationEngine) return;
+    generationStartedRef.current = true;
+    let cancelled = false;
+
+    const generate = async () => {
+      try {
+        const metadata: NarrativeMetadata = {
+          primaryEnergy: primary,
+          secondaryDimension: secondary,
+          groupSize: Math.max(1, generationEngine.features.personCount),
+          groupMode: generationEngine.mode,
+          behavior: {
+            groupCohesion: generationEngine.features.groupCohesion,
+            movementIntensity: generationEngine.features.movementIntensity,
+            movementSynchrony: generationEngine.features.movementSynchrony,
+            handsConverged: generationEngine.features.handsConverged,
+            armsOpen: generationEngine.features.armsOpen,
+          },
+        };
+        const narrative = await generateNarrative(metadata);
+        const reading: BehaviorReading = {
+          peopleCount: metadata.groupSize,
+          mode: generationEngine.mode,
+          movement: generationEngine.features.movementIntensity,
+          stability: generationEngine.features.stability,
+          cohesion: generationEngine.features.groupCohesion,
+          secondary,
+        };
+        const result = await renderFuturePortrait(
+          capturedImage,
+          primary,
+          reading,
+          narrative.response,
+        );
+        if (cancelled) return;
+        setResultNarrative(narrative.response);
+        setPortrait(result);
+        controllerRef.current?.generationComplete();
+      } catch (cause) {
+        setError(
+          cause instanceof Error ? cause.message : 'Unable to create the portrait.',
+        );
+        controllerRef.current?.fail();
+      }
+    };
+    generate();
+    return () => {
+      cancelled = true;
+    };
+  }, [state, capturedImage, primary, secondary]);
+
+  useEffect(() => {
+    if (
+      state !== 'RESULT' ||
+      !portrait ||
+      publishedIdRef.current === portrait.id
+    ) {
+      return;
+    }
+    publishedIdRef.current = portrait.id;
+    controllerRef.current?.beginCollectivePush();
+    publishPortrait(portrait).finally(() => {
+      controllerRef.current?.collectiveComplete();
+    });
+  }, [state, portrait]);
 
   const restart = () => {
-    setPrimary(null);
-    setReading(null);
+    publishedIdRef.current = null;
+    generationStartedRef.current = false;
+    setCapturedImage(null);
     setPortrait(null);
+    setResultNarrative('');
     setError('');
-    setReadyProgress(0);
-    setPhase('idle');
+    controllerRef.current?.reset();
   };
 
-  const activeColor = primary ? ENERGY_CONFIG[primary].color : '#00629A';
-  const direction = reading ? DIRECTION_COPY[reading.mode] : DIRECTION_COPY.Single;
+  const isIdle =
+    state === 'IDLE' ||
+    state === 'PARTICIPANT_DETECTED' ||
+    state === 'AWAITING_START';
+  const isDirection =
+    state === 'ACTION_INSTRUCTION' ||
+    state === 'ACTION_TRACKING' ||
+    state === 'POSE_READY';
+  const isCreating =
+    state === 'CAPTURE' || state === 'GENERATING';
+  const isResult =
+    state === 'RESULT' ||
+    state === 'COLLECTIVE_PUSH' ||
+    state === 'COMPLETE';
 
   return (
     <main className="booth-shell" style={{ '--active': activeColor } as React.CSSProperties}>
@@ -288,26 +305,31 @@ export default function BoothPage() {
         <video ref={videoRef} muted playsInline className="camera-feed" />
         <div className="camera-vignette" />
         <div className="camera-grid" />
-        {phase !== 'idle' && phase !== 'result' && (
+
+        {!isIdle && !isResult && (
           <div className="live-readout">
-            <span className="status-dot" />
-            AI VISION ACTIVE
+            <span className={`status-dot ${engine?.perception.status === 'running' ? '' : 'muted'}`} />
+            {engine?.perception.status === 'running'
+              ? 'MEDIAPIPE ACTIVE'
+              : 'TOUCH FALLBACK'}
             <i />
-            {faces} {faces === 1 ? 'PERSON' : 'PEOPLE'}
+            {peopleCount} {peopleCount === 1 ? 'PERSON' : 'PEOPLE'}
           </div>
         )}
 
-        {phase === 'idle' && (
+        {isIdle && (
           <div className="idle-panel">
             <div className="presence-pill">
-              <span className={cameraState === 'ready' ? 'status-dot' : 'status-dot muted'} />
-              {cameraState === 'ready'
-                ? faces > 1
-                  ? 'I see a team forming.'
-                  : 'A new signal is in view.'
-                : cameraState === 'starting'
-                  ? 'Preparing AI vision…'
-                  : 'Camera preview is unavailable · Demo mode ready'}
+              <span className={cameraStatus === 'ready' ? 'status-dot' : 'status-dot muted'} />
+              {peopleCount > 1
+                ? 'I see a team forming.'
+                : peopleCount === 1
+                  ? 'A new signal is in view.'
+                  : cameraStatus === 'ready'
+                    ? 'Step into the interaction area.'
+                    : cameraStatus === 'starting'
+                      ? 'Preparing local AI vision…'
+                      : 'Camera unavailable · touch demo ready'}
             </div>
             <p className="kicker">{EVENT.eyebrow}</p>
             <h1>
@@ -316,17 +338,22 @@ export default function BoothPage() {
               <em>Meet your future.</em>
             </h1>
             <p className="intro">
-              Make one choice. AI will read how you move together, direct your pose,
-              and co-create a future portrait.
+              Make one choice. Local AI vision will read how you move together,
+              direct your pose, and co-create a future portrait.
             </p>
-            <button className="primary-button" onClick={() => setPhase('select')}>
+            <button
+              className="primary-button"
+              onClick={() => controllerRef.current?.startExperience()}
+            >
               Begin experience <span>→</span>
             </button>
-            <p className="privacy-note">Camera frames are used only for this experience.</p>
+            <p className="privacy-note">
+              Live perception stays on this device. Only the final intended photo is captured.
+            </p>
           </div>
         )}
 
-        {phase === 'select' && (
+        {state === 'PRIMARY_SELECTION' && (
           <div className="select-panel">
             <p className="step-label">01 · HUMAN INPUT</p>
             <h2>What energy do you bring<br />to the future?</h2>
@@ -339,7 +366,7 @@ export default function BoothPage() {
                     key={energy}
                     className="energy-card"
                     style={{ '--energy': item.color, '--energy-accent': item.accent } as React.CSSProperties}
-                    onClick={() => selectEnergy(energy)}
+                    onClick={() => controllerRef.current?.selectPrimary(energy)}
                   >
                     <span>{item.number}</span>
                     <i />
@@ -353,35 +380,35 @@ export default function BoothPage() {
           </div>
         )}
 
-        {phase === 'reading' && (
+        {state === 'ANALYZING_BEHAVIOR' && (
           <div className="center-panel reading-panel">
             <SignalField active />
-            <p className="step-label">02 · AI READ</p>
+            <p className="step-label">02 · LOCAL AI READ</p>
             <h2>Reading your<br />shared signal</h2>
             <p>Observing group rhythm · movement · alignment</p>
             <div className="read-bars">
-              <span><i style={{ width: `${Math.min(100, 42 + motion * 420)}%` }} /></span>
-              <span><i style={{ width: '74%' }} /></span>
-              <span><i style={{ width: faces > 1 ? '86%' : '56%' }} /></span>
+              <span><i style={{ width: `${Math.min(100, 18 + (features?.movementIntensity ?? 0) * 120)}%` }} /></span>
+              <span><i style={{ width: `${Math.min(100, 20 + (features?.stability ?? 0) * 75)}%` }} /></span>
+              <span><i style={{ width: `${Math.min(100, 20 + (features?.groupCohesion ?? 0) * 75)}%` }} /></span>
             </div>
           </div>
         )}
 
-        {phase === 'response' && primary && reading && (
+        {state === 'AI_RESPONSE' && primary && secondary && responseNarrative && (
           <div className="center-panel response-panel">
             <p className="step-label">03 · AI RESPONSE</p>
             <div className="detected-lockup">
               <span>{primary.toUpperCase()}</span>
               <b>×</b>
-              <span>{reading.secondary.toUpperCase()}</span>
+              <span>{secondary.toUpperCase()}</span>
             </div>
             <h2>Signal detected.</h2>
-            <p>{SECONDARY_COPY[reading.secondary]}</p>
+            <p>{responseNarrative.response}</p>
             <div className="activation-line"><i /> Activating your future scenario…</div>
           </div>
         )}
 
-        {phase === 'direction' && reading && (
+        {isDirection && (
           <div className="direction-layout">
             <div className="pose-frame">
               <span className="corner top-left" />
@@ -391,40 +418,59 @@ export default function BoothPage() {
               <SignalField active />
             </div>
             <aside className="director-card">
-              <p className="step-label">04 · AI DIRECTOR · {reading.mode.toUpperCase()}</p>
-              <h2>{direction.headline}</h2>
+              <p className="step-label">04 · AI DIRECTOR · {mode.toUpperCase()}</p>
+              <h2>{state === 'POSE_READY' ? 'Perfect. Ready?' : direction.headline}</h2>
               <p className="direction-copy">{direction.instruction}</p>
               <small>{direction.support}</small>
               <div className="ready-meter">
-                <div><i style={{ width: `${readyProgress}%` }} /></div>
-                <span>{readyProgress >= 100 ? 'POSE READY' : 'READING MOVEMENT'}</span>
+                <div>
+                  <i
+                    style={{
+                      width: `${state === 'POSE_READY' ? 100 : Math.round((engine?.stability.progress ?? 0) * 100)}%`,
+                    }}
+                  />
+                </div>
+                <span>
+                  {state === 'POSE_READY'
+                    ? 'POSE READY · COUNTDOWN NEXT'
+                    : engine?.stability.trackingLost
+                      ? 'TRACKING LOST · HOLD POSITION'
+                      : 'CONFIRMING POSE'}
+                </span>
               </div>
-              <button className="secondary-button" onClick={beginCountdown}>
-                I’m ready · touch fallback
-              </button>
-              {error && <p className="error-copy">{error}</p>}
+              {engine?.fallbackAvailable && state === 'ACTION_TRACKING' && (
+                <div className="fallback-prompt">
+                  <p>Having trouble detecting the pose?</p>
+                  <button
+                    className="secondary-button"
+                    onClick={() => controllerRef.current?.continueWithTouchFallback()}
+                  >
+                    Continue →
+                  </button>
+                </div>
+              )}
             </aside>
           </div>
         )}
 
-        {phase === 'countdown' && (
+        {state === 'COUNTDOWN' && (
           <div className="countdown-panel">
             <p>HOLD YOUR SIGNAL</p>
             <strong key={countdown}>{countdown}</strong>
           </div>
         )}
 
-        {phase === 'creating' && primary && reading && (
+        {isCreating && primary && secondary && (
           <div className="center-panel creating-panel">
             <SignalField active />
             <p className="step-label">05 · AI CREATE</p>
             <h2>Co-creating your<br />future portrait</h2>
-            <p>{primary} × {reading.secondary} × {reading.mode}</p>
+            <p>{primary} × {secondary} × {mode}</p>
             <div className="progress-track"><i /></div>
           </div>
         )}
 
-        {phase === 'result' && portrait && (
+        {isResult && portrait && (
           <div className="result-layout">
             <div className="portrait-wrap">
               <img src={portrait.imageData} alt={`${portrait.primary} and ${portrait.secondary} future portrait`} />
@@ -436,10 +482,12 @@ export default function BoothPage() {
               <div className="result-equation">
                 <strong>{portrait.primary}</strong><span>×</span><strong>{portrait.secondary}</strong>
               </div>
-              <p>{portrait.narrative}</p>
+              <p>{resultNarrative || portrait.narrative}</p>
               <div className="collective-confirmation">
                 <i className="status-dot" />
-                Added to the collective signal
+                {state === 'COMPLETE'
+                  ? 'Added to the collective signal'
+                  : 'Connecting to the collective signal…'}
               </div>
               <div className="result-actions">
                 <a className="primary-button" href={portrait.imageData} download={`bosch-future-${portrait.id}.jpg`}>
@@ -451,9 +499,22 @@ export default function BoothPage() {
             </aside>
           </div>
         )}
+
+        {state === 'ERROR' && (
+          <div className="center-panel error-panel">
+            <p className="step-label">RECOVERY</p>
+            <h2>Let’s try that again.</h2>
+            <p>{error || 'The interaction paused safely before capture.'}</p>
+            <button className="primary-button" onClick={restart}>Restart experience →</button>
+          </div>
+        )}
+
+        {debug && engine && (
+          <PerceptionDebugOverlay snapshot={engine} cameraStatus={cameraStatus} />
+        )}
       </section>
       <footer className="booth-footer">
-        <span>HUMAN INTENTION</span><i /> <span>AI OBSERVATION</span><i /> <span>CO-CREATED FUTURE</span>
+        <span>HUMAN INTENTION</span><i /> <span>LOCAL AI PERCEPTION</span><i /> <span>CO-CREATED FUTURE</span>
       </footer>
     </main>
   );

@@ -62,6 +62,7 @@ export async function renderFuturePortrait(
   capturedImage: string,
   primary: PrimaryEnergy,
   reading: BehaviorReading,
+  narrativeCopy = SECONDARY_COPY[reading.secondary],
 ): Promise<PortraitRecord> {
   const image = new Image();
   image.src = capturedImage;
@@ -122,7 +123,7 @@ export async function renderFuturePortrait(
   context.fillText('YOUR FUTURE SIGNAL', 70, 1192);
 
   context.font = '700 48px Arial, sans-serif';
-  const copy = SECONDARY_COPY[reading.secondary];
+  const copy = narrativeCopy;
   const words = copy.split(' ');
   let line = '';
   let y = 1280;
@@ -148,7 +149,6 @@ export async function renderFuturePortrait(
   return {
     id: crypto.randomUUID(),
     imageData: canvas.toDataURL('image/jpeg', 0.88),
-    capturedImage,
     timestamp: Date.now(),
     primary,
     secondary: reading.secondary,

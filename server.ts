@@ -7,10 +7,14 @@ import http from "http";
 import https from "https";
 import { execFile } from "child_process";
 import { createServer as createViteServer } from "vite";
+import { GoogleGenAI } from "@google/genai";
 
 import { PRINT_6INCH_SERVER } from "./constants";
 import { ensureHttpsCert } from "./scripts/ensure-https-cert.mjs";
 import type { PortraitRecord } from "./types";
+
+const MAX_PORTRAIT_DATA_LENGTH = 4_000_000;
+const MAX_PORTRAIT_SESSION_BYTES = 48_000_000;
 
 function lanIpv4s() {
   const out: string[] = [];
@@ -38,6 +42,78 @@ async function startServer() {
   app.use(cors());
   app.use(express.json({ limit: "50mb" }));
 
+  // Optional LLM enhancement. This endpoint accepts behavioral metadata only;
+  // no image, video frame or identity data is sent to Gemini.
+  app.post("/api/narrative", async (req, res) => {
+    const {
+      primaryEnergy,
+      secondaryDimension,
+      groupSize,
+      groupMode,
+      behavior,
+    } = req.body ?? {};
+    const allowedPrimary = ["Motion", "Intelligence", "Life", "Impact"];
+    const allowedSecondary = [
+      "Collaboration",
+      "Precision",
+      "Momentum",
+      "Exploration",
+    ];
+    if (
+      !allowedPrimary.includes(primaryEnergy) ||
+      !allowedSecondary.includes(secondaryDimension) ||
+      !Number.isInteger(groupSize) ||
+      groupSize < 0 ||
+      groupSize > 20 ||
+      !["Single", "Pair", "Group"].includes(groupMode) ||
+      !behavior ||
+      typeof behavior !== "object"
+    ) {
+      return res.status(400).json({ error: "Invalid narrative metadata" });
+    }
+
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      return res.status(503).json({ error: "Narrative enhancement unavailable" });
+    }
+
+    try {
+      const ai = new GoogleGenAI({ apiKey });
+      const metadata = {
+        primaryEnergy,
+        secondaryDimension,
+        groupSize,
+        groupMode,
+        behavior: {
+          groupCohesion: Number(behavior.groupCohesion) || 0,
+          movementIntensity: Number(behavior.movementIntensity) || 0,
+          movementSynchrony: Number(behavior.movementSynchrony) || 0,
+          handsConverged: Boolean(behavior.handsConverged),
+          armsOpen: Boolean(behavior.armsOpen),
+        },
+      };
+      const response = await ai.models.generateContent({
+        model: process.env.GEMINI_MODEL || "gemini-2.5-flash",
+        contents: [
+          "Create concise, brand-safe English copy for a Bosch conference future portrait.",
+          "Return JSON only with keys: label, response, directionCopy, imagePromptVariables.",
+          "imagePromptVariables must contain visualTheme and composition strings.",
+          "Do not infer identity, personality, emotion, age, gender, or any sensitive trait.",
+          `Observable metadata: ${JSON.stringify(metadata)}`,
+        ].join("\n"),
+        config: {
+          responseMimeType: "application/json",
+          temperature: 0.5,
+        },
+      });
+      const output = JSON.parse(response.text ?? "{}");
+      res.json(output);
+    } catch (error) {
+      console.error("Narrative generation failed:", error);
+      res.status(502).json({ error: "Narrative generation failed" });
+    }
+  });
+
   // Booth → server → wall. Results live in memory for the event session and
   // the client keeps a local fallback if the wall runs on the same device.
   app.get("/api/portraits", (_req, res) => {
@@ -50,6 +126,7 @@ async function startServer() {
       typeof record.id !== "string" ||
       typeof record.imageData !== "string" ||
       !record.imageData.startsWith("data:image/") ||
+      record.imageData.length > MAX_PORTRAIT_DATA_LENGTH ||
       typeof record.timestamp !== "number" ||
       typeof record.primary !== "string" ||
       typeof record.secondary !== "string"
@@ -57,11 +134,29 @@ async function startServer() {
       return res.status(400).json({ error: "Invalid portrait record" });
     }
 
-    const portrait = record as PortraitRecord;
+    const portrait: PortraitRecord = {
+      id: record.id,
+      imageData: record.imageData,
+      timestamp: record.timestamp,
+      primary: record.primary as PortraitRecord["primary"],
+      secondary: record.secondary as PortraitRecord["secondary"],
+      mode:
+        record.mode === "Pair" || record.mode === "Group"
+          ? record.mode
+          : "Single",
+      narrative: typeof record.narrative === "string" ? record.narrative : "",
+      color: typeof record.color === "string" ? record.color : "#00629A",
+    };
     const existing = portraits.findIndex((item) => item.id === portrait.id);
     if (existing >= 0) portraits.splice(existing, 1);
     portraits.push(portrait);
-    if (portraits.length > 48) portraits.splice(0, portraits.length - 48);
+    while (
+      portraits.length > 48 ||
+      portraits.reduce((total, item) => total + item.imageData.length, 0) >
+        MAX_PORTRAIT_SESSION_BYTES
+    ) {
+      portraits.shift();
+    }
 
     const event = `event: portrait\ndata: ${JSON.stringify(portrait)}\n\n`;
     portraitStreams.forEach((stream) => stream.write(event));

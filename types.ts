@@ -20,7 +20,6 @@ export interface BehaviorReading {
 export interface PortraitRecord {
   id: string;
   imageData: string;
-  capturedImage?: string;
   timestamp: number;
   primary: PrimaryEnergy;
   secondary: SecondaryDimension;

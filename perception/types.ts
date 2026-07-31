@@ -6,9 +6,41 @@ export interface Landmark {
   presence?: number;
 }
 
+export type BodyJoint =
+  | 'nose'
+  | 'leftShoulder'
+  | 'rightShoulder'
+  | 'leftElbow'
+  | 'rightElbow'
+  | 'leftWrist'
+  | 'rightWrist'
+  | 'leftHip'
+  | 'rightHip'
+  | 'leftKnee'
+  | 'rightKnee'
+  | 'leftAnkle'
+  | 'rightAnkle';
+
+export type BodyKeypoints = Partial<Record<BodyJoint, Landmark>>;
+
+export interface NormalizedBounds {
+  xMin: number;
+  yMin: number;
+  xMax: number;
+  yMax: number;
+  width: number;
+  height: number;
+}
+
+export type PerceptionEngine = 'movenet' | 'mediapipe';
+
 export interface PersonObservation {
   id: string;
+  source: PerceptionEngine;
   poseLandmarks: Landmark[];
+  keypoints: BodyKeypoints;
+  bounds: NormalizedBounds;
+  footPoint: { x: number; y: number };
   centerX: number;
   centerY: number;
   visibleConfidence: number;
@@ -27,6 +59,7 @@ export interface PerceptionFrame {
   timestamp: number;
   people: PersonObservation[];
   hands: HandObservation[];
+  engine: PerceptionEngine;
   fps: number;
   inferenceMs: number;
 }
@@ -43,4 +76,5 @@ export interface PerceptionSnapshot {
   status: PerceptionStatus;
   frame: PerceptionFrame | null;
   error?: string;
+  warning?: string;
 }

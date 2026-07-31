@@ -1,10 +1,20 @@
 import { interactionConfig } from '../config/interactionConfig';
-import type { PerceptionFrame, PersonObservation } from '../perception/types';
+import type {
+  BodyJoint,
+  PerceptionFrame,
+  PersonObservation,
+} from '../perception/types';
 import { analyzeGroup } from './GroupAnalyzer';
 import { MovementTracker } from './MovementTracker';
 import type { BehaviorFeatures } from './types';
 
-const REQUIRED_IN_FRAME_LANDMARKS = [0, 11, 12, 15, 16, 23, 24];
+const REQUIRED_IN_FRAME_JOINTS: BodyJoint[] = [
+  'nose',
+  'leftShoulder',
+  'rightShoulder',
+  'leftHip',
+  'rightHip',
+];
 
 function visible(landmark?: {
   visibility?: number;
@@ -17,13 +27,14 @@ function visible(landmark?: {
 }
 
 function isArmsOpen(person: PersonObservation) {
-  const landmarks = person.poseLandmarks;
-  const leftShoulder = landmarks[11];
-  const rightShoulder = landmarks[12];
-  const leftElbow = landmarks[13];
-  const rightElbow = landmarks[14];
-  const leftWrist = landmarks[15];
-  const rightWrist = landmarks[16];
+  const {
+    leftShoulder,
+    rightShoulder,
+    leftElbow,
+    rightElbow,
+    leftWrist,
+    rightWrist,
+  } = person.keypoints;
   if (
     ![
       leftShoulder,
@@ -66,8 +77,8 @@ function isArmsOpen(person: PersonObservation) {
 
 function subjectInFrame(person: PersonObservation) {
   const margin = interactionConfig.inFrameMargin;
-  return REQUIRED_IN_FRAME_LANDMARKS.every((index) => {
-    const landmark = person.poseLandmarks[index];
+  return REQUIRED_IN_FRAME_JOINTS.every((joint) => {
+    const landmark = person.keypoints[joint];
     return (
       landmark &&
       visible(landmark) &&

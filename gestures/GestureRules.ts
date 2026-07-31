@@ -1,66 +1,94 @@
 import { interactionConfig } from '../config/interactionConfig';
-import type { BehaviorFeatures } from '../behavior/types';
-import type { GroupMode } from '../types';
+import type {
+  BodyKeypoints,
+  Landmark,
+  PersonObservation,
+} from '../perception/types';
 
-export type RequiredPrimitive =
-  | 'ARMS_OPEN'
-  | 'PEOPLE_CLOSE + HANDS_CONVERGED'
-  | 'HIGH_COHESION + HANDS_TOWARD_CENTER';
+export type RaisedArmSide = 'left' | 'right';
 
 export interface GestureRuleResult {
-  requiredPrimitive: RequiredPrimitive;
+  requiredPrimitive: 'RAISE_ONE_ARM';
   satisfied: boolean;
   matchScore: number;
+  initiatorId: string | null;
+  arm: RaisedArmSide | null;
 }
-
 function clamp01(value: number) {
   return Math.max(0, Math.min(1, value));
 }
 
-export function evaluateGesture(
-  mode: GroupMode,
-  features: BehaviorFeatures,
+function visible(point?: Landmark) {
+  return Boolean(
+    point &&
+      (point.visibility ?? point.presence ?? 1) >=
+        interactionConfig.moveNet.scoreThreshold,
+  );
+}
+
+function torsoLength(keypoints: BodyKeypoints) {
+  const { leftShoulder, rightShoulder, leftHip, rightHip } = keypoints;
+  if (
+    !leftShoulder ||
+    !rightShoulder ||
+    !leftHip ||
+    !rightHip
+  ) {
+    return 0.18;
+  }
+  const shoulderY = (leftShoulder.y + rightShoulder.y) / 2;
+  const hipY = (leftHip.y + rightHip.y) / 2;
+  return Math.max(0.1, Math.abs(hipY - shoulderY));
+}
+
+function armScore(
+  keypoints: BodyKeypoints,
+  side: RaisedArmSide,
+) {
+  const shoulder =
+    side === 'left' ? keypoints.leftShoulder : keypoints.rightShoulder;
+  const elbow =
+    side === 'left' ? keypoints.leftElbow : keypoints.rightElbow;
+  const wrist =
+    side === 'left' ? keypoints.leftWrist : keypoints.rightWrist;
+  if (!visible(shoulder) || !visible(elbow) || !visible(wrist)) return 0;
+
+  const normalizedRise = (shoulder!.y - wrist!.y) / torsoLength(keypoints);
+  const elbowParticipation = elbow!.y < shoulder!.y + torsoLength(keypoints) * 0.35;
+  const score = clamp01((normalizedRise + 0.08) / 0.62);
+  return elbowParticipation ? score : score * 0.65;
+}
+
+function personGesture(person: PersonObservation) {
+  const left = armScore(person.keypoints, 'left');
+  const right = armScore(person.keypoints, 'right');
+  return left >= right
+    ? { person, arm: 'left' as const, score: left }
+    : { person, arm: 'right' as const, score: right };
+}
+
+export function evaluateRaiseArm(
+  people: PersonObservation[],
+  lockedInitiatorId: string | null = null,
 ): GestureRuleResult {
-  if (mode === 'Single') {
-    return {
-      requiredPrimitive: 'ARMS_OPEN',
-      satisfied:
-        features.armsOpen &&
-        features.allSubjectsInFrame &&
-        features.detectionStable,
-      matchScore: features.armsOpen ? 1 : 0,
-    };
-  }
-
-  if (mode === 'Pair') {
-    const matchScore =
-      (features.peopleClose ? 0.45 : 0) +
-      (features.handsConverged ? 0.45 : 0) +
-      features.groupCohesion * 0.1;
-    return {
-      requiredPrimitive: 'PEOPLE_CLOSE + HANDS_CONVERGED',
-      satisfied:
-        features.personCount >= 2 &&
-        features.peopleClose &&
-        features.handsConverged &&
-        features.allSubjectsInFrame &&
-        features.detectionStable,
-      matchScore: clamp01(matchScore),
-    };
-  }
-
-  const matchScore =
-    features.groupCohesion * 0.55 +
-    (features.handsTowardCenter ? 0.35 : 0) +
-    (features.allSubjectsInFrame ? 0.1 : 0);
+  const eligible = lockedInitiatorId
+    ? people.filter((person) => person.id === lockedInitiatorId)
+    : people;
+  const best = eligible
+    .map(personGesture)
+    .sort((first, second) => second.score - first.score)[0];
+  const matchScore = best?.score ?? 0;
+  const initiatorId =
+    best && matchScore >= interactionConfig.raiseArmStartScore
+      ? best.person.id
+      : null;
   return {
-    requiredPrimitive: 'HIGH_COHESION + HANDS_TOWARD_CENTER',
+    requiredPrimitive: 'RAISE_ONE_ARM',
     satisfied:
-      features.personCount >= 3 &&
-      features.groupCohesion >= interactionConfig.groupCohesionReady &&
-      features.handsTowardCenter &&
-      features.allSubjectsInFrame &&
-      features.detectionStable,
-    matchScore: clamp01(matchScore),
+      Boolean(initiatorId) &&
+      matchScore >= interactionConfig.raiseArmConfirmScore,
+    matchScore,
+    initiatorId,
+    arm: initiatorId ? best.arm : null,
   };
 }

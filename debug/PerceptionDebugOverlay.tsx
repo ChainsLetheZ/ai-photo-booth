@@ -1,26 +1,27 @@
 import React, { useEffect, useRef } from 'react';
 import type { CameraStatus } from '../camera/CameraService';
 import type { InteractionEngineSnapshot } from '../interaction/InteractionController';
+import type { BodyJoint } from '../perception/types';
 
-const POSE_CONNECTIONS = [
-  [0, 1], [1, 2], [2, 3], [3, 7], [0, 4], [4, 5], [5, 6], [6, 8],
-  [9, 10], [11, 12], [11, 13], [13, 15], [15, 17], [15, 19], [15, 21],
-  [17, 19], [12, 14], [14, 16], [16, 18], [16, 20], [16, 22], [18, 20],
-  [11, 23], [12, 24], [23, 24], [23, 25], [24, 26], [25, 27], [26, 28],
-  [27, 29], [28, 30], [29, 31], [30, 32], [27, 31], [28, 32],
-].map(([start, end]) => ({ start, end }));
-
-const HAND_CONNECTIONS = [
-  [0, 1], [1, 2], [2, 3], [3, 4], [0, 5], [5, 6], [6, 7], [7, 8],
-  [5, 9], [9, 10], [10, 11], [11, 12], [9, 13], [13, 14], [14, 15],
-  [15, 16], [13, 17], [17, 18], [18, 19], [19, 20], [0, 17],
-].map(([start, end]) => ({ start, end }));
+const BODY_CONNECTIONS: Array<[BodyJoint, BodyJoint]> = [
+  ['leftShoulder', 'rightShoulder'],
+  ['leftShoulder', 'leftElbow'],
+  ['leftElbow', 'leftWrist'],
+  ['rightShoulder', 'rightElbow'],
+  ['rightElbow', 'rightWrist'],
+  ['leftShoulder', 'leftHip'],
+  ['rightShoulder', 'rightHip'],
+  ['leftHip', 'rightHip'],
+  ['leftHip', 'leftKnee'],
+  ['leftKnee', 'leftAnkle'],
+  ['rightHip', 'rightKnee'],
+  ['rightKnee', 'rightAnkle'],
+];
 
 interface Props {
   snapshot: InteractionEngineSnapshot;
   cameraStatus: CameraStatus;
 }
-
 function score(value: number | undefined) {
   return value === undefined ? '—' : value.toFixed(2);
 }
@@ -45,59 +46,42 @@ export default function PerceptionDebugOverlay({
     const frame = snapshot.frame;
     if (!frame) return;
 
-    const drawConnections = (
-      landmarks: Array<{ x: number; y: number }>,
-      connections: Array<{ start: number; end: number }>,
-      color: string,
-    ) => {
-      context.strokeStyle = color;
+    frame.people.forEach((person) => {
+      context.strokeStyle =
+        snapshot.initiatorId === person.id ? '#FFFFFF' : '#7BD5EF';
+      context.fillStyle = context.strokeStyle;
       context.lineWidth = 1.5;
-      connections.forEach(({ start, end }) => {
-        const first = landmarks[start];
-        const second = landmarks[end];
+      BODY_CONNECTIONS.forEach(([start, end]) => {
+        const first = person.keypoints[start];
+        const second = person.keypoints[end];
         if (!first || !second) return;
         context.beginPath();
-        context.moveTo(first.x * bounds.width, first.y * bounds.height);
-        context.lineTo(second.x * bounds.width, second.y * bounds.height);
+        context.moveTo((1 - first.x) * bounds.width, first.y * bounds.height);
+        context.lineTo((1 - second.x) * bounds.width, second.y * bounds.height);
         context.stroke();
       });
-      context.fillStyle = color;
-      landmarks.forEach((landmark) => {
+      Object.values(person.keypoints).forEach((landmark) => {
+        if (!landmark) return;
         context.beginPath();
         context.arc(
-          landmark.x * bounds.width,
+          (1 - landmark.x) * bounds.width,
           landmark.y * bounds.height,
-          2.4,
+          2.5,
           0,
           Math.PI * 2,
         );
         context.fill();
       });
-    };
+    });
+  }, [snapshot.frame, snapshot.initiatorId]);
 
-    frame.people.forEach((person) =>
-      drawConnections(
-        person.poseLandmarks,
-        POSE_CONNECTIONS,
-        '#7BD5EF',
-      ),
-    );
-    frame.hands.forEach((hand) =>
-      drawConnections(
-        hand.landmarks,
-        HAND_CONNECTIONS,
-        '#F5A623',
-      ),
-    );
-  }, [snapshot.frame]);
-
-  const { features, secondaryScores } = snapshot;
+  const { features, secondaryScores, zones } = snapshot;
   return (
-    <div className="perception-debug" aria-label="MediaPipe developer overlay">
+    <div className="perception-debug" aria-label="Perception developer overlay">
       <canvas ref={canvasRef} className="landmark-canvas" />
       <aside className="debug-console">
         <div className="debug-title">
-          <strong>MEDIAPIPE ENGINE</strong>
+          <strong>{snapshot.frame?.engine.toUpperCase() ?? 'VISION'} ENGINE</strong>
           <span>{snapshot.perception.status}</span>
         </div>
         <dl>
@@ -105,18 +89,20 @@ export default function PerceptionDebugOverlay({
           <dt>CAMERA</dt><dd>{cameraStatus}</dd>
           <dt>FPS / INFERENCE</dt>
           <dd>{snapshot.frame?.fps ?? 0} / {snapshot.frame?.inferenceMs.toFixed(0) ?? '—'}ms</dd>
-          <dt>PEOPLE / MODE</dt><dd>{features.personCount} / {snapshot.mode}</dd>
-          <dt>ARMS OPEN</dt><dd>{String(features.armsOpen)}</dd>
-          <dt>HANDS CONVERGED</dt><dd>{String(features.handsConverged)}</dd>
-          <dt>PEOPLE CLOSE</dt><dd>{String(features.peopleClose)}</dd>
-          <dt>IN FRAME / STABLE</dt>
-          <dd>{String(features.allSubjectsInFrame)} / {String(features.detectionStable)}</dd>
+          <dt>VISIBLE / ENGAGED</dt>
+          <dd>{zones.visiblePeople.length} / {zones.engagedPeople.length}</dd>
+          <dt>CAPTURE / ACTIVE</dt>
+          <dd>{zones.capturePeople.length} / {zones.activePeople.length}</dd>
+          <dt>OVERFLOW / STABLE</dt>
+          <dd>{String(zones.overflow)} / {String(zones.activeStable)}</dd>
+          <dt>MODE</dt><dd>{snapshot.mode}</dd>
+          <dt>IN FRAME</dt><dd>{String(features.allSubjectsInFrame)}</dd>
           <dt>COHESION</dt><dd>{score(features.groupCohesion)}</dd>
           <dt>MOVEMENT</dt><dd>{score(features.movementIntensity)}</dd>
-          <dt>SYNCHRONY</dt><dd>{score(features.movementSynchrony)}</dd>
-          <dt>EXPLORATION</dt><dd>{score(features.spatialExploration)}</dd>
-          <dt>GESTURE</dt><dd>{snapshot.gesture?.requiredPrimitive ?? '—'}</dd>
+          <dt>INITIATOR</dt><dd>{snapshot.initiatorId ?? '—'}</dd>
+          <dt>GESTURE SCORE</dt><dd>{score(snapshot.gesture?.matchScore)}</dd>
           <dt>HOLD</dt><dd>{Math.round(snapshot.stability.progress * 100)}%</dd>
+          <dt>COUNTDOWN</dt><dd>{snapshot.countdown ?? '—'}</dd>
         </dl>
         <div className="debug-scores">
           <strong>SECONDARY SCORES</strong>
@@ -132,9 +118,9 @@ export default function PerceptionDebugOverlay({
             ),
           )}
         </div>
-        <p>
-          {snapshot.primary ?? 'No primary'} × {snapshot.secondary ?? 'Pending'}
-        </p>
+        {snapshot.perception.warning && (
+          <small>{snapshot.perception.warning}</small>
+        )}
         {snapshot.perception.error && (
           <small>{snapshot.perception.error}</small>
         )}

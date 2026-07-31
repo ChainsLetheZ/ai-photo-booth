@@ -1,7 +1,10 @@
-import { interactionConfig } from '../config/interactionConfig';
 import { BehaviorFeatureExtractor } from '../behavior/BehaviorFeatureExtractor';
 import type { BehaviorFeatures } from '../behavior/types';
-import { evaluateGesture, type GestureRuleResult } from '../gestures/GestureRules';
+import { interactionConfig } from '../config/interactionConfig';
+import {
+  evaluateRaiseArm,
+  type GestureRuleResult,
+} from '../gestures/GestureRules';
 import {
   GestureStabilityTracker,
   type StabilityResult,
@@ -26,6 +29,11 @@ import {
   selectSecondaryDimension,
   type SecondaryScores,
 } from './SecondaryRuleEngine';
+import {
+  emptyZoneSnapshot,
+  type ZoneSnapshot,
+  ZoneTracker,
+} from './ZoneTracker';
 
 const EMPTY_FEATURES: BehaviorFeatures = {
   personCount: 0,
@@ -43,56 +51,60 @@ const EMPTY_FEATURES: BehaviorFeatures = {
   detectionStable: false,
 };
 
+const EMPTY_STABILITY: StabilityResult = {
+  confirmed: false,
+  progress: 0,
+  trackingLost: false,
+};
+
 export interface InteractionEngineSnapshot {
   state: InteractionState;
   perception: PerceptionSnapshot;
-  features: BehaviorFeatures;
   frame: PerceptionFrame | null;
+  zones: ZoneSnapshot;
+  features: BehaviorFeatures;
   mode: GroupMode;
-  primary: PrimaryEnergy | null;
+  primary: PrimaryEnergy;
   secondary: SecondaryDimension | null;
   secondaryScores: SecondaryScores | null;
   gesture: GestureRuleResult | null;
   stability: StabilityResult;
-  fallbackAvailable: boolean;
+  initiatorId: string | null;
+  gestureConfirmedAt: number | null;
+  lockedActiveIds: string[];
+  countdown: number | null;
 }
 
-export type VisionInteractionEvent =
-  | { type: 'PARTICIPANT_ENTERED'; timestamp: number }
-  | { type: 'PARTICIPANT_LEFT'; timestamp: number }
-  | { type: 'GROUP_SIZE_CHANGED'; timestamp: number; personCount: number }
-  | { type: 'GESTURE_CONFIRMED'; timestamp: number }
-  | { type: 'POSE_READY'; timestamp: number }
-  | { type: 'TRACKING_LOST'; timestamp: number };
+function sameIds(first: string[], second: string[]) {
+  if (first.length !== second.length) return false;
+  const secondSet = new Set(second);
+  return first.every((id) => secondSet.has(id));
+}
 
 export class InteractionController {
   readonly machine = new InteractionStateMachine();
   private readonly extractor = new BehaviorFeatureExtractor();
   private readonly stabilityTracker = new GestureStabilityTracker();
+  private readonly zoneTracker = new ZoneTracker();
   private readonly perceptionManager: PerceptionManager;
   private perception: PerceptionSnapshot = { status: 'idle', frame: null };
-  private features: BehaviorFeatures = EMPTY_FEATURES;
   private frame: PerceptionFrame | null = null;
+  private zones: ZoneSnapshot = emptyZoneSnapshot();
+  private features: BehaviorFeatures = EMPTY_FEATURES;
   private mode: GroupMode = 'Single';
-  private primary: PrimaryEnergy | null = null;
+  private primary: PrimaryEnergy = interactionConfig.defaultPrimary;
   private secondary: SecondaryDimension | null = null;
   private secondaryScores: SecondaryScores | null = null;
   private gesture: GestureRuleResult | null = null;
-  private stability: StabilityResult = {
-    confirmed: false,
-    progress: 0,
-    trackingLost: false,
-  };
-  private fallbackAvailable = false;
-  private fallbackTimer = 0;
-  private presenceTimer = 0;
-  private lastPersonCount = 0;
-  private missingSince: number | null = null;
-  private trackingLossEmitted = false;
-  private participantWasPresent = false;
-  private visionEventListeners = new Set<
-    (event: VisionInteractionEvent) => void
-  >();
+  private stability: StabilityResult = EMPTY_STABILITY;
+  private initiatorId: string | null = null;
+  private gestureConfirmedAt: number | null = null;
+  private lockedActiveIds: string[] = [];
+  private countdown: number | null = null;
+  private missingLockedSince: number | null = null;
+  private directTimer = 0;
+  private readyTimer = 0;
+  private countdownTimer = 0;
 
   constructor(
     video: HTMLVideoElement,
@@ -110,60 +122,8 @@ export class InteractionController {
   }
 
   close() {
-    window.clearTimeout(this.fallbackTimer);
-    window.clearTimeout(this.presenceTimer);
+    this.clearTimers();
     this.perceptionManager.close();
-  }
-
-  subscribeToVisionEvents(
-    listener: (event: VisionInteractionEvent) => void,
-  ) {
-    this.visionEventListeners.add(listener);
-    return () => this.visionEventListeners.delete(listener);
-  }
-
-  cameraReady() {
-    this.machine.dispatch('CAMERA_READY');
-  }
-
-  startExperience() {
-    this.machine.dispatch('START');
-  }
-
-  selectPrimary(primary: PrimaryEnergy) {
-    this.primary = primary;
-    this.machine.dispatch('PRIMARY_SELECTED');
-    this.emit();
-  }
-
-  completeAnalysis() {
-    const scores = scoreSecondaryDimensions(this.features);
-    const selection = selectSecondaryDimension(scores);
-    this.secondaryScores = scores;
-    this.secondary = selection.dimension;
-    this.machine.dispatch('ANALYSIS_COMPLETE');
-    this.emit();
-    return selection;
-  }
-
-  completeResponse() {
-    this.machine.dispatch('RESPONSE_COMPLETE');
-  }
-
-  beginActionTracking() {
-    this.machine.dispatch('INSTRUCTION_SHOWN');
-  }
-
-  continueWithTouchFallback() {
-    this.machine.dispatch('FALLBACK_CONTINUE');
-  }
-
-  beginCountdown() {
-    this.machine.dispatch('START_COUNTDOWN');
-  }
-
-  countdownComplete() {
-    this.machine.dispatch('COUNTDOWN_COMPLETE');
   }
 
   captureComplete() {
@@ -171,15 +131,7 @@ export class InteractionController {
   }
 
   generationComplete() {
-    this.machine.dispatch('GENERATION_COMPLETE');
-  }
-
-  beginCollectivePush() {
-    this.machine.dispatch('PUSH_COLLECTIVE');
-  }
-
-  collectiveComplete() {
-    this.machine.dispatch('COLLECTIVE_COMPLETE');
+    this.machine.dispatch('CREATE_COMPLETE');
   }
 
   fail() {
@@ -187,15 +139,23 @@ export class InteractionController {
   }
 
   reset() {
-    this.primary = null;
+    this.clearTimers();
+    this.primary = interactionConfig.defaultPrimary;
     this.secondary = null;
     this.secondaryScores = null;
     this.mode = 'Single';
     this.gesture = null;
+    this.stability = EMPTY_STABILITY;
+    this.initiatorId = null;
+    this.gestureConfirmedAt = null;
+    this.lockedActiveIds = [];
+    this.countdown = null;
+    this.missingLockedSince = null;
     this.stabilityTracker.reset();
     this.extractor.reset();
+    this.zoneTracker.reset();
     this.features = EMPTY_FEATURES;
-    this.fallbackAvailable = false;
+    this.zones = emptyZoneSnapshot();
     this.machine.dispatch('RESET');
     this.emit();
   }
@@ -204,15 +164,19 @@ export class InteractionController {
     return {
       state: this.machine.getState(),
       perception: this.perception,
-      features: this.features,
       frame: this.frame,
+      zones: this.zones,
+      features: this.features,
       mode: this.mode,
       primary: this.primary,
       secondary: this.secondary,
       secondaryScores: this.secondaryScores,
       gesture: this.gesture,
       stability: this.stability,
-      fallbackAvailable: this.fallbackAvailable,
+      initiatorId: this.initiatorId,
+      gestureConfirmedAt: this.gestureConfirmedAt,
+      lockedActiveIds: this.lockedActiveIds,
+      countdown: this.countdown,
     };
   }
 
@@ -220,112 +184,289 @@ export class InteractionController {
     this.perception = perception;
     if (perception.frame) {
       this.frame = perception.frame;
-      this.features = this.extractor.extract(perception.frame);
+      this.zones = this.zoneTracker.update(perception.frame);
+      const activeFrame: PerceptionFrame = {
+        ...perception.frame,
+        people: this.zones.activePeople,
+        hands: [],
+      };
+      this.features = this.extractor.extract(activeFrame);
       this.mode = groupModeFromPersonCount(this.features.personCount);
-      this.emitPresenceEvents(perception.frame);
-      if (
-        this.features.personCount > 0 &&
-        (this.machine.getState() === 'IDLE' ||
-          this.machine.getState() === 'AWAITING_START')
-      ) {
-        this.machine.dispatch('PARTICIPANT_ENTERED');
-        window.clearTimeout(this.presenceTimer);
-        this.presenceTimer = window.setTimeout(
-          () => this.machine.dispatch('PRESENCE_ACKNOWLEDGED'),
-          550,
-        );
+      this.synchronizeSpatialState(perception.frame.timestamp);
+      if (this.machine.getState() === 'DIRECT') {
+        this.updateGesture(perception.frame.timestamp);
       }
-      if (this.machine.getState() === 'ACTION_TRACKING') {
-        this.gesture = evaluateGesture(this.mode, this.features);
-        this.stability = this.stabilityTracker.update(
-          this.gesture.satisfied,
-          this.features.personCount > 0,
-          perception.frame.timestamp,
-        );
-        this.features = {
-          ...this.features,
-          poseReady: this.stability.confirmed,
-        };
-        if (this.stability.confirmed) {
-          this.emitVisionEvent({
-            type: 'GESTURE_CONFIRMED',
-            timestamp: perception.frame.timestamp,
-          });
-          this.machine.dispatch('GESTURE_CONFIRMED');
-          this.emitVisionEvent({
-            type: 'POSE_READY',
-            timestamp: perception.frame.timestamp,
-          });
-        }
+      if (
+        this.machine.getState() === 'POSE_READY' ||
+        this.machine.getState() === 'COUNTDOWN'
+      ) {
+        this.validateLockedGroup(perception.frame.timestamp);
       }
     }
     this.emit();
   };
 
-  private handleStateChange = (state: InteractionState) => {
-    window.clearTimeout(this.fallbackTimer);
-    if (state === 'ACTION_TRACKING') {
+  private synchronizeSpatialState(timestamp: number) {
+    const state = this.machine.getState();
+    if (
+      state === 'CAPTURE' ||
+      state === 'CREATE' ||
+      state === 'RESULT' ||
+      state === 'ERROR'
+    ) {
+      return;
+    }
+
+    if (
+      this.zones.engagedPeople.length === 0 &&
+      this.lockedPeopleAreBrieflyMissing(timestamp)
+    ) {
+      return;
+    }
+
+    if (this.zones.engagedPeople.length === 0) {
+      this.cancelInteractionMemory();
+      this.machine.dispatch('ENGAGEMENT_LOST');
+      return;
+    }
+
+    if (
+      this.zones.capturePeople.length === 0 &&
+      this.lockedPeopleAreBrieflyMissing(timestamp)
+    ) {
+      return;
+    }
+
+    if (this.zones.capturePeople.length === 0) {
+      this.cancelInteractionMemory();
+      if (state === 'PASSERBY') {
+        this.machine.dispatch('ENGAGEMENT_FOUND');
+      } else if (
+        state === 'CAPTURE_ZONE' ||
+        state === 'DIRECT' ||
+        state === 'POSE_READY' ||
+        state === 'COUNTDOWN'
+      ) {
+        this.machine.dispatch('CAPTURE_ZONE_LEFT');
+      }
+      return;
+    }
+
+    if (state === 'PASSERBY' || state === 'ENGAGED') {
+      this.machine.dispatch('CAPTURE_ZONE_ENTERED');
+    }
+
+    const currentState = this.machine.getState();
+    const groupInvalid =
+      this.zones.overflow ||
+      !this.zones.activeStable ||
+      this.zones.activePeople.length === 0;
+
+    if (groupInvalid) {
+      if (this.lockedPeopleAreBrieflyMissing(timestamp)) return;
+      window.clearTimeout(this.directTimer);
+      this.directTimer = 0;
+      if (
+        currentState === 'DIRECT' ||
+        currentState === 'POSE_READY' ||
+        currentState === 'COUNTDOWN'
+      ) {
+        this.cancelInteractionMemory();
+        this.machine.dispatch('CAPTURE_INVALID');
+      }
+      return;
+    }
+
+    if (currentState === 'CAPTURE_ZONE') {
+      this.ensureDirectTimer(timestamp);
+    }
+  }
+
+  private ensureDirectTimer(_timestamp: number) {
+    if (this.directTimer) return;
+    this.directTimer = window.setTimeout(() => {
+      this.directTimer = 0;
+      if (
+        this.machine.getState() !== 'CAPTURE_ZONE' ||
+        this.zones.overflow ||
+        !this.zones.activeStable ||
+        this.zones.activePeople.length === 0
+      ) {
+        return;
+      }
+      this.lockedActiveIds = [...this.zones.activeIds];
+      this.secondaryScores = scoreSecondaryDimensions(this.features);
+      this.secondary = selectSecondaryDimension(
+        this.secondaryScores,
+      ).dimension;
+      this.machine.dispatch('START_DIRECT');
+      this.emit();
+    }, interactionConfig.directLeadInMs);
+  }
+
+  private updateGesture(timestamp: number) {
+    if (!this.zones.activeStable || this.zones.overflow) return;
+
+    let result = evaluateRaiseArm(
+      this.zones.activePeople,
+      this.initiatorId,
+    );
+    if (!this.initiatorId && result.initiatorId) {
+      this.initiatorId = result.initiatorId;
+      result = evaluateRaiseArm(
+        this.zones.activePeople,
+        this.initiatorId,
+      );
+    }
+    if (
+      this.initiatorId &&
+      result.matchScore < interactionConfig.raiseArmStartScore * 0.45 &&
+      this.stability.progress === 0
+    ) {
+      this.initiatorId = null;
       this.stabilityTracker.reset();
-      this.fallbackAvailable = false;
-      this.fallbackTimer = window.setTimeout(() => {
-        this.fallbackAvailable = true;
-        this.emit();
-      }, interactionConfig.gestureFallbackMs);
+      result = evaluateRaiseArm(this.zones.activePeople);
+    }
+    result = {
+      ...result,
+      satisfied: result.satisfied && this.features.allSubjectsInFrame,
+    };
+    this.gesture = result;
+    this.stability = this.stabilityTracker.update(
+      result.satisfied,
+      this.zones.activePeople.length > 0,
+      timestamp,
+    );
+    this.features = {
+      ...this.features,
+      poseReady: this.stability.confirmed,
+    };
+    if (this.stability.confirmed) {
+      this.gestureConfirmedAt = performance.now();
+      this.machine.dispatch('GESTURE_CONFIRMED');
+    }
+  }
+
+  private validateLockedGroup(timestamp: number) {
+    const valid =
+      !this.zones.overflow &&
+      this.zones.activeStable &&
+      this.zones.activePeople.length > 0 &&
+      sameIds(this.lockedActiveIds, this.zones.activeIds) &&
+      this.features.allSubjectsInFrame;
+    if (!valid && this.lockedPeopleAreBrieflyMissing(timestamp)) return;
+    if (!valid) {
+      this.cancelInteractionMemory();
+      this.machine.dispatch('CAPTURE_INVALID');
+    }
+  }
+
+  private handleStateChange = (state: InteractionState) => {
+    if (state !== 'CAPTURE_ZONE') {
+      window.clearTimeout(this.directTimer);
+      this.directTimer = 0;
+    }
+    if (state !== 'POSE_READY') {
+      window.clearTimeout(this.readyTimer);
+      this.readyTimer = 0;
+    }
+    if (state !== 'COUNTDOWN') {
+      this.stopCountdown();
+    }
+
+    if (state === 'DIRECT') {
+      this.gesture = null;
+      this.stability = EMPTY_STABILITY;
+      this.initiatorId = null;
+      this.gestureConfirmedAt = null;
+      this.stabilityTracker.reset();
     }
     if (state === 'POSE_READY') {
-      this.fallbackAvailable = false;
+      this.readyTimer = window.setTimeout(() => {
+        this.readyTimer = 0;
+        if (
+          this.machine.getState() === 'POSE_READY' &&
+          sameIds(this.lockedActiveIds, this.zones.activeIds)
+        ) {
+          this.machine.dispatch('START_COUNTDOWN');
+        }
+      }, interactionConfig.readyHoldMs);
+    }
+    if (state === 'COUNTDOWN') {
+      this.startCountdown();
     }
     this.emit();
   };
+
+  private startCountdown() {
+    this.stopCountdown();
+    this.countdown = 3;
+    this.countdownTimer = window.setInterval(() => {
+      if (this.machine.getState() !== 'COUNTDOWN') {
+        this.stopCountdown();
+        return;
+      }
+      const next = (this.countdown ?? 3) - 1;
+      if (next <= 0) {
+        this.stopCountdown();
+        this.machine.dispatch('COUNTDOWN_COMPLETE');
+      } else {
+        this.countdown = next;
+        this.emit();
+      }
+    }, 1000);
+  }
+
+  private stopCountdown() {
+    window.clearInterval(this.countdownTimer);
+    this.countdownTimer = 0;
+    this.countdown = null;
+  }
+
+  private cancelInteractionMemory() {
+    this.stopCountdown();
+    window.clearTimeout(this.readyTimer);
+    this.readyTimer = 0;
+    this.lockedActiveIds = [];
+    this.initiatorId = null;
+    this.gestureConfirmedAt = null;
+    this.gesture = null;
+    this.stability = EMPTY_STABILITY;
+    this.missingLockedSince = null;
+    this.stabilityTracker.reset();
+  }
+
+  private clearTimers() {
+    window.clearTimeout(this.directTimer);
+    window.clearTimeout(this.readyTimer);
+    this.directTimer = 0;
+    this.readyTimer = 0;
+    this.stopCountdown();
+  }
+
+  private lockedPeopleAreBrieflyMissing(timestamp: number) {
+    if (!this.lockedActiveIds.length || !this.frame) {
+      this.missingLockedSince = null;
+      return false;
+    }
+    const visibleIds = new Set(this.frame.people.map((person) => person.id));
+    const hasMissingLockedPerson = this.lockedActiveIds.some(
+      (id) => !visibleIds.has(id),
+    );
+    if (!hasMissingLockedPerson) {
+      this.missingLockedSince = null;
+      return false;
+    }
+    if (this.missingLockedSince === null) {
+      this.missingLockedSince = timestamp;
+    }
+    return (
+      timestamp - this.missingLockedSince <
+      interactionConfig.trackingLossGraceMs
+    );
+  }
 
   private emit() {
     this.listener(this.getSnapshot());
-  }
-
-  private emitPresenceEvents(frame: PerceptionFrame) {
-    const personCount = this.features.personCount;
-    if (personCount !== this.lastPersonCount) {
-      this.emitVisionEvent({
-        type: 'GROUP_SIZE_CHANGED',
-        timestamp: frame.timestamp,
-        personCount,
-      });
-    }
-    if (personCount > 0) {
-      if (this.lastPersonCount === 0) {
-        this.emitVisionEvent({
-          type: 'PARTICIPANT_ENTERED',
-          timestamp: frame.timestamp,
-        });
-      }
-      this.missingSince = null;
-      this.trackingLossEmitted = false;
-      this.participantWasPresent = true;
-    } else {
-      if (this.missingSince === null) this.missingSince = frame.timestamp;
-      if (
-        !this.trackingLossEmitted &&
-        frame.timestamp - this.missingSince >
-          interactionConfig.trackingLossGraceMs
-      ) {
-        this.trackingLossEmitted = true;
-        this.emitVisionEvent({
-          type: 'TRACKING_LOST',
-          timestamp: frame.timestamp,
-        });
-        if (this.participantWasPresent) {
-          this.emitVisionEvent({
-            type: 'PARTICIPANT_LEFT',
-            timestamp: frame.timestamp,
-          });
-          this.participantWasPresent = false;
-        }
-      }
-    }
-    this.lastPersonCount = personCount;
-  }
-
-  private emitVisionEvent(event: VisionInteractionEvent) {
-    this.visionEventListeners.forEach((listener) => listener(event));
   }
 }

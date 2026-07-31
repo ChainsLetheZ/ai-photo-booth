@@ -1,81 +1,78 @@
 export type InteractionState =
-  | 'IDLE'
-  | 'PARTICIPANT_DETECTED'
-  | 'AWAITING_START'
-  | 'PRIMARY_SELECTION'
-  | 'ANALYZING_BEHAVIOR'
-  | 'AI_RESPONSE'
-  | 'ACTION_INSTRUCTION'
-  | 'ACTION_TRACKING'
+  | 'PASSERBY'
+  | 'ENGAGED'
+  | 'CAPTURE_ZONE'
+  | 'DIRECT'
   | 'POSE_READY'
   | 'COUNTDOWN'
   | 'CAPTURE'
-  | 'GENERATING'
+  | 'CREATE'
   | 'RESULT'
-  | 'COLLECTIVE_PUSH'
-  | 'COMPLETE'
   | 'ERROR';
 
 export type InteractionEvent =
-  | 'CAMERA_READY'
-  | 'PARTICIPANT_ENTERED'
-  | 'PRESENCE_ACKNOWLEDGED'
-  | 'START'
-  | 'PRIMARY_SELECTED'
-  | 'ANALYSIS_COMPLETE'
-  | 'RESPONSE_COMPLETE'
-  | 'INSTRUCTION_SHOWN'
+  | 'ENGAGEMENT_FOUND'
+  | 'ENGAGEMENT_LOST'
+  | 'CAPTURE_ZONE_ENTERED'
+  | 'CAPTURE_ZONE_LEFT'
+  | 'START_DIRECT'
   | 'GESTURE_CONFIRMED'
-  | 'FALLBACK_CONTINUE'
   | 'START_COUNTDOWN'
+  | 'CAPTURE_INVALID'
   | 'COUNTDOWN_COMPLETE'
   | 'CAPTURE_COMPLETE'
-  | 'GENERATION_COMPLETE'
-  | 'PUSH_COLLECTIVE'
-  | 'COLLECTIVE_COMPLETE'
+  | 'CREATE_COMPLETE'
   | 'RESET'
   | 'FAIL';
 
 const transitions: Partial<
   Record<InteractionState, Partial<Record<InteractionEvent, InteractionState>>>
 > = {
-  IDLE: {
-    CAMERA_READY: 'AWAITING_START',
-    PARTICIPANT_ENTERED: 'PARTICIPANT_DETECTED',
-    START: 'PRIMARY_SELECTION',
+  PASSERBY: {
+    ENGAGEMENT_FOUND: 'ENGAGED',
+    CAPTURE_ZONE_ENTERED: 'CAPTURE_ZONE',
     FAIL: 'ERROR',
   },
-  PARTICIPANT_DETECTED: {
-    PRESENCE_ACKNOWLEDGED: 'AWAITING_START',
-    START: 'PRIMARY_SELECTION',
+  ENGAGED: {
+    ENGAGEMENT_LOST: 'PASSERBY',
+    CAPTURE_ZONE_ENTERED: 'CAPTURE_ZONE',
     FAIL: 'ERROR',
   },
-  AWAITING_START: {
-    PARTICIPANT_ENTERED: 'PARTICIPANT_DETECTED',
-    START: 'PRIMARY_SELECTION',
+  CAPTURE_ZONE: {
+    CAPTURE_ZONE_LEFT: 'ENGAGED',
+    ENGAGEMENT_LOST: 'PASSERBY',
+    START_DIRECT: 'DIRECT',
     FAIL: 'ERROR',
   },
-  PRIMARY_SELECTION: { PRIMARY_SELECTED: 'ANALYZING_BEHAVIOR', FAIL: 'ERROR' },
-  ANALYZING_BEHAVIOR: { ANALYSIS_COMPLETE: 'AI_RESPONSE', FAIL: 'ERROR' },
-  AI_RESPONSE: { RESPONSE_COMPLETE: 'ACTION_INSTRUCTION', FAIL: 'ERROR' },
-  ACTION_INSTRUCTION: { INSTRUCTION_SHOWN: 'ACTION_TRACKING', FAIL: 'ERROR' },
-  ACTION_TRACKING: {
+  DIRECT: {
+    CAPTURE_INVALID: 'CAPTURE_ZONE',
+    CAPTURE_ZONE_LEFT: 'ENGAGED',
+    ENGAGEMENT_LOST: 'PASSERBY',
     GESTURE_CONFIRMED: 'POSE_READY',
-    FALLBACK_CONTINUE: 'POSE_READY',
     FAIL: 'ERROR',
   },
-  POSE_READY: { START_COUNTDOWN: 'COUNTDOWN', FAIL: 'ERROR' },
-  COUNTDOWN: { COUNTDOWN_COMPLETE: 'CAPTURE', FAIL: 'ERROR' },
-  CAPTURE: { CAPTURE_COMPLETE: 'GENERATING', FAIL: 'ERROR' },
-  GENERATING: { GENERATION_COMPLETE: 'RESULT', FAIL: 'ERROR' },
-  RESULT: { PUSH_COLLECTIVE: 'COLLECTIVE_PUSH', RESET: 'IDLE' },
-  COLLECTIVE_PUSH: { COLLECTIVE_COMPLETE: 'COMPLETE', FAIL: 'ERROR' },
-  COMPLETE: { RESET: 'IDLE' },
-  ERROR: { RESET: 'IDLE' },
+  POSE_READY: {
+    CAPTURE_INVALID: 'CAPTURE_ZONE',
+    CAPTURE_ZONE_LEFT: 'ENGAGED',
+    ENGAGEMENT_LOST: 'PASSERBY',
+    START_COUNTDOWN: 'COUNTDOWN',
+    FAIL: 'ERROR',
+  },
+  COUNTDOWN: {
+    CAPTURE_INVALID: 'CAPTURE_ZONE',
+    CAPTURE_ZONE_LEFT: 'ENGAGED',
+    ENGAGEMENT_LOST: 'PASSERBY',
+    COUNTDOWN_COMPLETE: 'CAPTURE',
+    FAIL: 'ERROR',
+  },
+  CAPTURE: { CAPTURE_COMPLETE: 'CREATE', FAIL: 'ERROR' },
+  CREATE: { CREATE_COMPLETE: 'RESULT', FAIL: 'ERROR' },
+  RESULT: { RESET: 'PASSERBY' },
+  ERROR: { RESET: 'PASSERBY' },
 };
 
 export class InteractionStateMachine {
-  private state: InteractionState = 'IDLE';
+  private state: InteractionState = 'PASSERBY';
   private listeners = new Set<(state: InteractionState) => void>();
 
   getState() {
@@ -84,7 +81,7 @@ export class InteractionStateMachine {
 
   dispatch(event: InteractionEvent) {
     if (event === 'RESET') {
-      this.state = 'IDLE';
+      this.state = 'PASSERBY';
       this.notify();
       return this.state;
     }
@@ -94,7 +91,7 @@ export class InteractionStateMachine {
       return this.state;
     }
     const next = transitions[this.state]?.[event];
-    if (!next) return this.state;
+    if (!next || next === this.state) return this.state;
     this.state = next;
     this.notify();
     return this.state;

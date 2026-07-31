@@ -1,7 +1,20 @@
 import { interactionConfig } from '../config/interactionConfig';
-import type { PerceptionFrame, PersonObservation } from '../perception/types';
+import type {
+  BodyJoint,
+  PerceptionFrame,
+  PersonObservation,
+} from '../perception/types';
 
-const MAJOR_LANDMARKS = [11, 12, 13, 14, 15, 16, 23, 24];
+const MAJOR_JOINTS: BodyJoint[] = [
+  'leftShoulder',
+  'rightShoulder',
+  'leftElbow',
+  'rightElbow',
+  'leftWrist',
+  'rightWrist',
+  'leftHip',
+  'rightHip',
+];
 
 interface PersonMotion {
   centerX: number;
@@ -32,8 +45,8 @@ function landmarkMotion(
   previous: PersonMotion,
   deltaSeconds: number,
 ) {
-  const distances = MAJOR_LANDMARKS.map((index, sampleIndex) => {
-    const current = person.poseLandmarks[index];
+  const distances = MAJOR_JOINTS.map((joint, sampleIndex) => {
+    const current = person.keypoints[joint];
     const before = previous.landmarks[sampleIndex];
     if (!current || !before) return 0;
     return Math.hypot(current.x - before.x, current.y - before.y);
@@ -63,9 +76,9 @@ export class MovementTracker {
         centerX: person.centerX,
         centerY: person.centerY,
         timestamp: frame.timestamp,
-        landmarks: MAJOR_LANDMARKS.map((index) => ({
-          x: person.poseLandmarks[index]?.x ?? person.centerX,
-          y: person.poseLandmarks[index]?.y ?? person.centerY,
+        landmarks: MAJOR_JOINTS.map((joint) => ({
+          x: person.keypoints[joint]?.x ?? person.centerX,
+          y: person.keypoints[joint]?.y ?? person.centerY,
         })),
       });
     });

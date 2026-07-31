@@ -28,7 +28,12 @@ export class GestureStabilityTracker {
       // Brief tracking gaps preserve the current hold progress.
     } else {
       if (this.falseSince === null) this.falseSince = timestamp;
-      if (timestamp - this.falseSince > 140) this.satisfiedSince = null;
+      if (
+        timestamp - this.falseSince >
+        interactionConfig.gestureReleaseMs
+      ) {
+        this.satisfiedSince = null;
+      }
     }
 
     const heldFor =

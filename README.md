@@ -4,17 +4,53 @@ Hybrid Lite prototype for the Bosch Supplier Conference.
 
 `Human Input → Local AI Read → AI Response → AI Direct → 3-2-1 Capture → AI Create → Collective Layer`
 
+## V1 direction
+
+The agreed first version is a browser-only, full-screen AI mirror:
+
+- local MoveNet MultiPose perception;
+- three spatial zones with no mandatory Begin click and an approximately
+  0.5-metre forward-step demo preset;
+- an active capture group of 1–5 people;
+- an ambient perception halo around each tracked participant;
+- one instruction at a time;
+- any active participant can raise one arm to start the visible countdown;
+- capture, save and publishing to the collective wall are separate decisions.
+
+The V1 demo flow is implemented. The local MoveNet MultiPose Lightning graph
+and weight shards are now present in `public/models/movenet/`, so MoveNet is the
+default live engine. The app still has an explicit MediaPipe Pose development
+fallback if those files or the MoveNet runtime become unavailable.
+
+## Project documents
+
+- [`docs/design-progress-zh.md`](docs/design-progress-zh.md) — current product
+  decisions and progress; source of truth when older recommendations conflict.
+- [`docs/v1-implementation-roadmap-zh.md`](docs/v1-implementation-roadmap-zh.md)
+  — step-by-step path from the current code to V1, with module boundaries and
+  completion criteria.
+- [`docs/implementation-log-zh.md`](docs/implementation-log-zh.md) — chronological
+  implementation decisions, completed work, validation results and open items.
+- [`docs/research/exhibition-photo-interaction-research-zh.md`](docs/research/exhibition-photo-interaction-research-zh.md)
+  — research evidence, risks and the deferred study plan.
+
 ## Routes
 
 - `/booth` — camera experience and Future Portrait creation
 - `/wall` — live collective display
-- `/booth?debug=true` — MediaPipe landmarks, live features, scores and state
+- `/booth?debug=true` — current perception landmarks, live features, scores and state
 
 ## Local perception architecture
 
-Continuous camera perception stays in the browser:
+Continuous camera perception stays in the browser. Both MoveNet and the
+MediaPipe development fallback crop inference to the configured central
+interaction space before zone classification:
 
-`Camera → MediaPipe Pose + Hand → Behavior Features → Gesture Rules → State Machine`
+`Camera → Interaction ROI → MoveNet MultiPose → Stable Tracks → Zone Classification → Active Group (1–5) → Raise-arm Rule → Safe State Machine → AI Mirror`
+
+When the MoveNet model is absent:
+
+`Camera → MediaPipe Pose fallback → the same normalized tracks, zones, rules and AI Mirror`
 
 Gemini is optional and receives structured behavioral metadata only. It never
 receives continuous video and never controls interaction transitions. The app
@@ -23,10 +59,10 @@ contains deterministic fallback copy for all 16 Primary × Secondary combination
 Key modules:
 
 - `camera/` — permission, status and final-frame capture
-- `perception/` — MediaPipe Tasks and normalized observations
+- `perception/` — model-independent pose observations, MoveNet loader and MediaPipe fallback
 - `behavior/` — movement, proximity, cohesion and reusable features
-- `gestures/` — deterministic Single, Pair and Group rules with debouncing
-- `interaction/` — Secondary scoring and explicit interaction state machine
+- `gestures/` — deterministic raise-arm rule, initiator lock and hold stability
+- `interaction/` — spatial zones, active group capacity and safe state machine
 - `narrative/` — structured metadata client and deterministic fallbacks
 - `debug/` — query-parameter developer overlay
 
@@ -40,9 +76,16 @@ npm run dev
 
 Open <http://localhost:3000/booth> and <http://localhost:3000/wall>.
 
-`npm run models` downloads the official MediaPipe Pose Lite and Hand Landmarker
-models into `public/mediapipe/models/` and verifies their SHA-256 hashes. The
-WASM runtime is already vendored in `public/mediapipe/wasm/`.
+The MoveNet browser runtime is vendored in `public/vendor/movenet/`. Add the
+MoveNet MultiPose Lightning `model.json` and all weight shards referenced by it
+to `public/models/movenet/`. The official TensorFlow.js download link and exact
+placement are documented in that folder.
+
+Until those model files exist, the demo visibly reports the missing model and
+uses the existing local MediaPipe pose model as a development fallback.
+
+`npm run models` downloads that MediaPipe fallback model and the legacy Hand
+Landmarker. The V1 interaction does not use fine-grained hand tracking.
 
 If the model host is blocked by the corporate proxy, download the two official
 files on an approved network using the URLs and hashes documented in
@@ -66,6 +109,6 @@ npm run test:rules
 npm run build
 ```
 
-The state machine intentionally rejects direct `ACTION_TRACKING → COUNTDOWN`
-transitions. A confirmed gesture first enters `POSE_READY`, shows a readiness
-moment, and only then runs the explicit `3 → 2 → 1` countdown.
+The current state machine rejects direct `ACTION_TRACKING → COUNTDOWN`
+transitions. V1 will additionally keep validating active IDs, group size and
+capture-zone presence throughout `POSE_READY` and `COUNTDOWN`.

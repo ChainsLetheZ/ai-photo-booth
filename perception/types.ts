@@ -34,9 +34,25 @@ export interface NormalizedBounds {
 
 export type PerceptionEngine = 'movenet' | 'mediapipe';
 
+export interface FrameTiming {
+  captureMs: number;
+  inferMs: number;
+  postMs: number;
+  renderMs: number;
+  totalMs: number;
+}
+
+export type DetectionTiming = Pick<
+  FrameTiming,
+  'captureMs' | 'inferMs' | 'postMs'
+>;
+
 export interface PersonObservation {
   id: string;
+  rawTrackId?: string;
+  stableTrackId?: string;
   source: PerceptionEngine;
+  poseScore?: number;
   poseLandmarks: Landmark[];
   keypoints: BodyKeypoints;
   bounds: NormalizedBounds;
@@ -44,6 +60,16 @@ export interface PersonObservation {
   centerX: number;
   centerY: number;
   visibleConfidence: number;
+}
+
+export interface PerceptionDiagnostics {
+  backend: string;
+  numTensors: number | null;
+  roiInputWidth: number;
+  roiInputHeight: number;
+  maxPoses: number;
+  modelType?: string;
+  webglFlags?: Record<string, boolean | number | string | null>;
 }
 
 export interface HandObservation {
@@ -62,6 +88,8 @@ export interface PerceptionFrame {
   engine: PerceptionEngine;
   fps: number;
   inferenceMs: number;
+  timing?: FrameTiming;
+  diagnostics?: PerceptionDiagnostics;
 }
 
 export type PerceptionStatus =

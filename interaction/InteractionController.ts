@@ -10,6 +10,7 @@ import {
   type StabilityResult,
 } from '../gestures/GestureStabilityTracker';
 import { PerceptionManager } from '../perception/PerceptionManager';
+import { latestRenderMs } from '../perception/RenderTimingStore';
 import type {
   PerceptionFrame,
   PerceptionSnapshot,
@@ -34,6 +35,10 @@ import {
   type ZoneSnapshot,
   ZoneTracker,
 } from './ZoneTracker';
+import {
+  PersonTrackStore,
+  type BodyScaleProbeSnapshot,
+} from './PersonTrackStore';
 
 const EMPTY_FEATURES: BehaviorFeatures = {
   personCount: 0,
@@ -73,6 +78,11 @@ export interface InteractionEngineSnapshot {
   gestureConfirmedAt: number | null;
   lockedActiveIds: string[];
   countdown: number | null;
+  bodyScaleProbe: BodyScaleProbeSnapshot | null;
+}
+
+interface InteractionControllerOptions {
+  enableBodyScaleProbe?: boolean;
 }
 
 function sameIds(first: string[], second: string[]) {
@@ -101,15 +111,22 @@ export class InteractionController {
   private gestureConfirmedAt: number | null = null;
   private lockedActiveIds: string[] = [];
   private countdown: number | null = null;
+  private bodyScaleSnapshot: BodyScaleProbeSnapshot | null = null;
+  private readonly personTrackStore = new PersonTrackStore();
+  private readonly bodyScaleDebugEnabled: boolean;
   private missingLockedSince: number | null = null;
   private directTimer = 0;
   private readyTimer = 0;
   private countdownTimer = 0;
 
   constructor(
-    video: HTMLVideoElement,
+    private readonly video: HTMLVideoElement,
     private readonly listener: (snapshot: InteractionEngineSnapshot) => void,
+    options: InteractionControllerOptions = {},
   ) {
+    this.bodyScaleDebugEnabled = Boolean(
+      options.enableBodyScaleProbe && interactionConfig.bodyScaleProbe.enabled,
+    );
     this.perceptionManager = new PerceptionManager(
       video,
       this.handlePerception,
@@ -123,6 +140,7 @@ export class InteractionController {
 
   close() {
     this.clearTimers();
+    this.personTrackStore.reset();
     this.perceptionManager.close();
   }
 
@@ -154,6 +172,8 @@ export class InteractionController {
     this.stabilityTracker.reset();
     this.extractor.reset();
     this.zoneTracker.reset();
+    this.personTrackStore.reset();
+    this.bodyScaleSnapshot = null;
     this.features = EMPTY_FEATURES;
     this.zones = emptyZoneSnapshot();
     this.machine.dispatch('RESET');
@@ -177,31 +197,77 @@ export class InteractionController {
       gestureConfirmedAt: this.gestureConfirmedAt,
       lockedActiveIds: this.lockedActiveIds,
       countdown: this.countdown,
+      bodyScaleProbe: this.bodyScaleSnapshot,
     };
   }
 
   private handlePerception = (perception: PerceptionSnapshot) => {
     this.perception = perception;
     if (perception.frame) {
-      this.frame = perception.frame;
-      this.zones = this.zoneTracker.update(perception.frame);
+      const controllerPostStarted = performance.now();
+      const stabilized = this.personTrackStore.stabilize(
+        perception.frame,
+        this.video.videoWidth,
+        this.video.videoHeight,
+      );
+      this.frame = stabilized.frame;
+      this.perception = { ...perception, frame: stabilized.frame };
+      const scaleDecisionSnapshot = this.personTrackStore.measure(
+        stabilized.frame,
+        this.zones,
+        this.video.videoWidth,
+        this.video.videoHeight,
+      );
+      this.zones = this.zoneTracker.update(
+        stabilized.frame,
+        scaleDecisionSnapshot.readings,
+      );
       const activeFrame: PerceptionFrame = {
-        ...perception.frame,
+        ...stabilized.frame,
         people: this.zones.activePeople,
         hands: [],
       };
       this.features = this.extractor.extract(activeFrame);
       this.mode = groupModeFromPersonCount(this.features.personCount);
-      this.synchronizeSpatialState(perception.frame.timestamp);
+      this.synchronizeSpatialState(stabilized.frame.timestamp);
       if (this.machine.getState() === 'DIRECT') {
-        this.updateGesture(perception.frame.timestamp);
+        this.updateGesture(stabilized.frame.timestamp);
       }
       if (
         this.machine.getState() === 'POSE_READY' ||
         this.machine.getState() === 'COUNTDOWN'
       ) {
-        this.validateLockedGroup(perception.frame.timestamp);
+        this.validateLockedGroup(stabilized.frame.timestamp);
       }
+      const baseTiming = stabilized.frame.timing ?? {
+        captureMs: 0,
+        inferMs: stabilized.frame.inferenceMs,
+        postMs: 0,
+        renderMs: 0,
+        totalMs: stabilized.frame.inferenceMs,
+      };
+      const postMs =
+        baseTiming.postMs +
+        (performance.now() - controllerPostStarted);
+      const renderMs = latestRenderMs();
+      const timing = {
+        ...baseTiming,
+        postMs,
+        renderMs,
+        totalMs:
+          baseTiming.captureMs +
+          baseTiming.inferMs +
+          postMs +
+          renderMs,
+      };
+      const timedFrame: PerceptionFrame = {
+        ...stabilized.frame,
+        inferenceMs: timing.inferMs,
+        timing,
+      };
+      this.frame = timedFrame;
+      this.perception = { ...perception, frame: timedFrame };
+      this.updateBodyScaleProbe(scaleDecisionSnapshot, timedFrame);
     }
     this.emit();
   };
@@ -468,5 +534,29 @@ export class InteractionController {
 
   private emit() {
     this.listener(this.getSnapshot());
+  }
+
+  private updateBodyScaleProbe(
+    snapshot: BodyScaleProbeSnapshot,
+    frame: PerceptionFrame,
+  ) {
+    if (!this.bodyScaleDebugEnabled) {
+      this.bodyScaleSnapshot = null;
+      return;
+    }
+    const annotated = this.personTrackStore.annotateZones(snapshot, this.zones);
+    this.bodyScaleSnapshot = {
+      ...annotated,
+      readings: annotated.readings.map((reading) => ({
+        ...reading,
+        fps: frame.fps,
+        inferenceMs: frame.inferenceMs,
+        captureMs: frame.timing?.captureMs ?? 0,
+        inferMs: frame.timing?.inferMs ?? frame.inferenceMs,
+        postMs: frame.timing?.postMs ?? 0,
+        renderMs: frame.timing?.renderMs ?? 0,
+        totalMs: frame.timing?.totalMs ?? frame.inferenceMs,
+      })),
+    };
   }
 }

@@ -5,6 +5,7 @@ import type {
   Landmark,
   PersonObservation,
 } from '../perception/types';
+import { recordRenderTiming } from '../perception/RenderTimingStore';
 
 interface Props {
   snapshot: InteractionEngineSnapshot;
@@ -496,8 +497,13 @@ export default function PerceptionHaloLayer({
       const canvas = canvasRef.current;
       const video = videoRef.current;
       if (!canvas || !video) return;
+      const renderStarted = performance.now();
       const bounds = canvas.getBoundingClientRect();
-      const ratio = Math.min(window.devicePixelRatio || 1, 2);
+      const ratio = Math.min(
+        window.devicePixelRatio || 1,
+        2,
+        1280 / Math.max(1, bounds.width),
+      );
       const pixelWidth = Math.max(1, Math.round(bounds.width * ratio));
       const pixelHeight = Math.max(1, Math.round(bounds.height * ratio));
       if (canvas.width !== pixelWidth || canvas.height !== pixelHeight) {
@@ -615,6 +621,7 @@ export default function PerceptionHaloLayer({
       ) {
         drawDebugZones(context, transform, bounds.width, bounds.height);
       }
+      recordRenderTiming('halo', performance.now() - renderStarted);
     };
     animationFrame = window.requestAnimationFrame(draw);
     return () => window.cancelAnimationFrame(animationFrame);

@@ -174,7 +174,9 @@ export default function BoothPage() {
     const video = videoRef.current;
     if (!video) return undefined;
     const camera = new BrowserCameraService(video);
-    const controller = new InteractionController(video, setEngine);
+    const controller = new InteractionController(video, setEngine, {
+      enableBodyScaleProbe: debug,
+    });
     cameraRef.current = camera;
     controllerRef.current = controller;
     setEngine(controller.getSnapshot());
@@ -209,7 +211,7 @@ export default function BoothPage() {
       controller.close();
       camera.stop();
     };
-  }, []);
+  }, [debug]);
 
   useEffect(() => {
     if (

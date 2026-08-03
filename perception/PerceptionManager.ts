@@ -128,14 +128,28 @@ export class PerceptionManager {
     }
 
     this.busy = true;
-    const inferenceStarted = performance.now();
+    const detectionStarted = performance.now();
     try {
       const detected = await this.poseService.detect(this.video, now);
+      const measured = this.poseService.getLastTiming?.() ?? {
+        captureMs: 0,
+        inferMs: performance.now() - detectionStarted,
+        postMs: 0,
+      };
+      const managerPostStarted = performance.now();
       const people =
         this.poseService.engine === 'movenet'
           ? detected
           : this.stabilizeFallbackIds(detected);
       const completedAt = performance.now();
+      const postMs = measured.postMs + (completedAt - managerPostStarted);
+      const timing = {
+        captureMs: measured.captureMs,
+        inferMs: measured.inferMs,
+        postMs,
+        renderMs: 0,
+        totalMs: measured.captureMs + measured.inferMs + postMs,
+      };
       this.lastInferenceAt = completedAt;
       this.frameTimes = [
         ...this.frameTimes.filter((timestamp) => completedAt - timestamp <= 1000),
@@ -147,7 +161,9 @@ export class PerceptionManager {
         hands: [],
         engine: this.poseService.engine,
         fps: this.frameTimes.length,
-        inferenceMs: completedAt - inferenceStarted,
+        inferenceMs: timing.inferMs,
+        timing,
+        diagnostics: this.poseService.getDiagnostics?.(),
       };
       this.listener({
         status: 'running',

@@ -1,6 +1,12 @@
 import type { PoseLandmarker as PoseLandmarkerInstance } from '@mediapipe/tasks-vision';
 import { interactionConfig } from '../config/interactionConfig';
-import type { BodyKeypoints, Landmark, PersonObservation } from './types';
+import type {
+  BodyKeypoints,
+  DetectionTiming,
+  Landmark,
+  PerceptionDiagnostics,
+  PersonObservation,
+} from './types';
 import type { PoseEstimator } from './PoseEstimator';
 import { getVisionFileset } from './visionFiles';
 
@@ -90,6 +96,11 @@ export class MediaPipePoseService implements PoseEstimator {
   private readonly interactionCanvas = document.createElement('canvas');
   private readonly interactionContext =
     this.interactionCanvas.getContext('2d', { alpha: false });
+  private lastTiming: DetectionTiming = {
+    captureMs: 0,
+    inferMs: 0,
+    postMs: 0,
+  };
 
   private constructor(private readonly landmarker: PoseLandmarkerInstance) {}
 
@@ -105,7 +116,7 @@ export class MediaPipePoseService implements PoseEstimator {
       const landmarker = await PoseLandmarker.createFromOptions(fileset, {
         baseOptions,
         runningMode: 'VIDEO',
-        numPoses: interactionConfig.mediaPipe.maxPoses,
+        numPoses: interactionConfig.perception.maxPoses,
         minPoseDetectionConfidence:
           interactionConfig.mediaPipe.minimumPoseConfidence,
         minPosePresenceConfidence:
@@ -121,7 +132,7 @@ export class MediaPipePoseService implements PoseEstimator {
           delegate: 'CPU',
         },
         runningMode: 'VIDEO',
-        numPoses: interactionConfig.mediaPipe.maxPoses,
+        numPoses: interactionConfig.perception.maxPoses,
         minPoseDetectionConfidence:
           interactionConfig.mediaPipe.minimumPoseConfidence,
         minPosePresenceConfidence:
@@ -136,6 +147,7 @@ export class MediaPipePoseService implements PoseEstimator {
   }
 
   detect(video: HTMLVideoElement, timestamp: number): PersonObservation[] {
+    const captureStarted = performance.now();
     const videoWidth = Math.max(1, video.videoWidth);
     const videoHeight = Math.max(1, video.videoHeight);
     const roi = interactionConfig.perception.interactionRoi;
@@ -171,8 +183,12 @@ export class MediaPipePoseService implements PoseEstimator {
       );
       input = this.interactionCanvas;
     }
+    const captureMs = performance.now() - captureStarted;
+    const inferStarted = performance.now();
     const result = this.landmarker.detectForVideo(input, timestamp);
-    return result.landmarks.map((landmarks, index) => {
+    const inferMs = performance.now() - inferStarted;
+    const postStarted = performance.now();
+    const people = result.landmarks.map((landmarks, index) => {
       const copied = landmarks.map((landmark) => {
         const copiedLandmark = copyLandmark(landmark);
         if (input === video) return copiedLandmark;
@@ -194,6 +210,7 @@ export class MediaPipePoseService implements PoseEstimator {
       const anklePoints = [copied[27], copied[28]].filter(Boolean);
       return {
         id: `pose-${index}`,
+        rawTrackId: `pose-${index}`,
         source: this.engine,
         poseLandmarks: copied,
         keypoints: semanticKeypoints(copied),
@@ -212,6 +229,27 @@ export class MediaPipePoseService implements PoseEstimator {
         visibleConfidence: confidence,
       };
     });
+    this.lastTiming = {
+      captureMs,
+      inferMs,
+      postMs: performance.now() - postStarted,
+    };
+    return people;
+  }
+
+  getLastTiming(): DetectionTiming {
+    return this.lastTiming;
+  }
+
+  getDiagnostics(): PerceptionDiagnostics {
+    return {
+      backend: `mediapipe-${interactionConfig.mediaPipe.delegate.toLowerCase()}`,
+      numTensors: null,
+      roiInputWidth: this.interactionCanvas.width,
+      roiInputHeight: this.interactionCanvas.height,
+      maxPoses: interactionConfig.perception.maxPoses,
+      modelType: 'POSE_LANDMARKER_LITE',
+    };
   }
 
   close() {

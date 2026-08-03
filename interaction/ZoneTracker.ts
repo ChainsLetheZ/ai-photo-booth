@@ -1,4 +1,5 @@
 import { interactionConfig } from '../config/interactionConfig';
+import type { TrackScaleReading } from './PersonTrackStore';
 import type {
   PerceptionFrame,
   PersonObservation,
@@ -11,6 +12,8 @@ export interface PersonZoneReading {
   rawZone: InteractionZone;
   stableZone: InteractionZone;
   stableForMs: number;
+  credit: number;
+  proxy: 'bodyScale' | 'footY';
 }
 
 export interface ZoneSnapshot {
@@ -56,14 +59,25 @@ export class ZoneTracker {
   private activeSignature = '';
   private activeSignatureSince = 0;
 
-  update(frame: PerceptionFrame): ZoneSnapshot {
+  update(
+    frame: PerceptionFrame,
+    scaleReadings: TrackScaleReading[] = [],
+  ): ZoneSnapshot {
     const { timestamp, people } = frame;
+    const scaleById = new Map(
+      scaleReadings.map((reading) => [reading.stableTrackId, reading]),
+    );
     const readings = people.map((person) => {
+      const scaleReading = scaleById.get(person.id);
+      const useBodyScale =
+        interactionConfig.zoneProxy === 'bodyScale' && scaleReading !== undefined;
       let track = this.tracks.get(person.id);
       if (!track) {
-        const initialCandidate = this.rawZone(person, 'PASSERBY');
+        const initialCandidate = useBodyScale
+          ? this.bodyScaleZone(person, scaleReading)
+          : this.footZone(person, 'PASSERBY');
         track = {
-          stableZone: 'PASSERBY',
+          stableZone: useBodyScale ? initialCandidate : 'PASSERBY',
           candidateZone: initialCandidate,
           candidateSince: timestamp,
           stableSince: timestamp,
@@ -72,9 +86,16 @@ export class ZoneTracker {
         this.tracks.set(person.id, track);
       }
 
-      const rawZone = this.rawZone(person, track.stableZone);
+      const rawZone = useBodyScale
+        ? this.bodyScaleZone(person, scaleReading)
+        : this.footZone(person, track.stableZone);
       track.lastSeenAt = timestamp;
-      if (rawZone !== track.candidateZone) {
+      if (useBodyScale && rawZone !== track.stableZone) {
+        track.stableZone = rawZone;
+        track.candidateZone = rawZone;
+        track.candidateSince = timestamp;
+        track.stableSince = timestamp;
+      } else if (rawZone !== track.candidateZone) {
         track.candidateZone = rawZone;
         track.candidateSince = timestamp;
       } else if (
@@ -90,6 +111,8 @@ export class ZoneTracker {
         rawZone,
         stableZone: track.stableZone,
         stableForMs: timestamp - track.stableSince,
+        credit: scaleReading?.credit ?? 0,
+        proxy: useBodyScale ? 'bodyScale' : 'footY',
       };
     });
 
@@ -148,7 +171,21 @@ export class ZoneTracker {
     this.activeSignatureSince = 0;
   }
 
-  private rawZone(
+  private bodyScaleZone(
+    person: PersonObservation,
+    reading: TrackScaleReading,
+  ): InteractionZone {
+    const { x } = person.footPoint;
+    if (
+      x < interactionConfig.zones.horizontalMargin ||
+      x > 1 - interactionConfig.zones.horizontalMargin
+    ) {
+      return 'PASSERBY';
+    }
+    return reading.decisionZone === 'Z2' ? 'CAPTURE_ZONE' : 'ENGAGED';
+  }
+
+  private footZone(
     person: PersonObservation,
     stableZone: InteractionZone,
   ): InteractionZone {
@@ -175,4 +212,3 @@ export class ZoneTracker {
     return 'PASSERBY';
   }
 }
-

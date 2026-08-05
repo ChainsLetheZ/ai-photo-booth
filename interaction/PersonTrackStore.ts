@@ -76,7 +76,13 @@ export interface TrackScaleReading {
   gVelocity: number | null;
   baselineInitCount: number;
   postureInvalidForMs: number;
-  zoneProxy: 'bodyScale' | 'footY';
+  zoneProxy: 'bypass' | 'bodyScale' | 'footY';
+  waveActive: boolean;
+  waveCrossings: number;
+  waveAmplitude: number;
+  waveProgress: number;
+  waveConfirmed: boolean;
+  waveSide: 'left' | 'right' | null;
   footYNorm: number;
   existingZone: ExistingZone;
   activeCount: number;
@@ -100,7 +106,23 @@ export interface BodyScaleProbeSnapshot {
 
 export interface StabilizedFrameResult {
   frame: PerceptionFrame;
+  acceptedPeople: PersonObservation[];
   sanity: SanityWindowSnapshot;
+  gateDiagnostics: FrameGateDiagnostics;
+}
+
+export interface FrameGateDiagnostics {
+  detectedCount: number;
+  sanityAcceptedCount: number;
+  sanityRejectedCount: number;
+  rejectReasons: Partial<Record<SanityRejectReason, number>>;
+  /** Measured numbers behind the first rejection of this frame. */
+  rejectDetail?: string;
+  confirmedCount: number;
+  confirmationProgressFrames: number;
+  requiredConfirmationFrames: number;
+  /** Tracks re-attached to an existing stable id inside the grace period. */
+  reassociatedCount: number;
 }
 
 interface InternalTrack {
@@ -114,6 +136,11 @@ interface InternalTrack {
   lastCenterY: number;
   lastRawScale: number | null;
   torsoAspectHistory: number[];
+  pendingScaleSamples: Array<{
+    timestampMs: number;
+    scale: number | null;
+    postureValid: boolean;
+  }>;
 }
 
 interface SanityEvent {
@@ -303,6 +330,11 @@ export class PersonTrackStore {
     unconfirmedCount: 0,
   };
 
+  constructor(
+    private readonly trackConfirmFrames: number =
+      interactionConfig.tracking.trackConfirmFrames,
+  ) {}
+
   stabilize(
     frame: PerceptionFrame,
     sourceWidth: number,
@@ -313,6 +345,13 @@ export class PersonTrackStore {
     this.expireTracks(frame.timestamp);
     const matchedStableIds = new Set<string>();
     const confirmedPeople: PersonObservation[] = [];
+    const acceptedPeople: PersonObservation[] = [];
+    let sanityAcceptedCount = 0;
+    let sanityRejectedCount = 0;
+    let confirmationProgressFrames = 0;
+    let reassociatedCount = 0;
+    const currentRejectReasons: Partial<Record<SanityRejectReason, number>> = {};
+    let firstRejectDetail: string | undefined;
 
     frame.people.forEach((person) => {
       const sanityResult = poseSanityFilter(person, width, height);
@@ -321,7 +360,16 @@ export class PersonTrackStore {
         accepted: sanityResult.pass,
         reason: sanityResult.rejectReason,
       });
-      if (!sanityResult.pass) return;
+      if (!sanityResult.pass) {
+        sanityRejectedCount += 1;
+        firstRejectDetail ??= sanityResult.rejectDetail;
+        if (sanityResult.rejectReason) {
+          currentRejectReasons[sanityResult.rejectReason] =
+            (currentRejectReasons[sanityResult.rejectReason] ?? 0) + 1;
+        }
+        return;
+      }
+      sanityAcceptedCount += 1;
 
       const rawTrackId = person.rawTrackId ?? person.id;
       const scaleResult = rawBodyScale(person, width, height);
@@ -337,6 +385,7 @@ export class PersonTrackStore {
           this.rawToStable.delete(track.rawTrackId);
           track.rawTrackId = rawTrackId;
           this.rawToStable.set(rawTrackId, track.stableTrackId);
+          reassociatedCount += 1;
         }
       }
       if (!track) {
@@ -351,18 +400,32 @@ export class PersonTrackStore {
       track.lastRawScale = scaleResult.scale;
       if (
         !track.confirmed &&
-        track.confirmFrames >= interactionConfig.tracking.trackConfirmFrames
+        track.confirmFrames >= this.trackConfirmFrames
       ) {
         track.confirmed = true;
       }
-      matchedStableIds.add(track.stableTrackId);
-      if (track.confirmed) {
-        confirmedPeople.push({
-          ...person,
-          id: track.stableTrackId,
-          rawTrackId,
-          stableTrackId: track.stableTrackId,
+      confirmationProgressFrames = Math.max(
+        confirmationProgressFrames,
+        track.confirmFrames,
+      );
+      if (!track.confirmed) {
+        const posture = postureReading(track, person, scaleResult);
+        track.pendingScaleSamples.push({
+          timestampMs: frame.timestamp,
+          scale: scaleResult.scale,
+          postureValid: posture.postureValid,
         });
+      }
+      matchedStableIds.add(track.stableTrackId);
+      const stabilizedPerson = {
+        ...person,
+        id: track.stableTrackId,
+        rawTrackId,
+        stableTrackId: track.stableTrackId,
+      };
+      acceptedPeople.push(stabilizedPerson);
+      if (track.confirmed) {
+        confirmedPeople.push(stabilizedPerson);
       }
     });
 
@@ -370,7 +433,19 @@ export class PersonTrackStore {
     this.updateSanitySnapshot(frame.timestamp);
     return {
       frame: { ...frame, people: confirmedPeople },
+      acceptedPeople,
       sanity: this.latestSanity,
+      gateDiagnostics: {
+        detectedCount: frame.people.length,
+        sanityAcceptedCount,
+        sanityRejectedCount,
+        rejectReasons: currentRejectReasons,
+        rejectDetail: firstRejectDetail,
+        confirmedCount: confirmedPeople.length,
+        confirmationProgressFrames,
+        requiredConfirmationFrames: this.trackConfirmFrames,
+        reassociatedCount,
+      },
     };
   }
 
@@ -390,6 +465,24 @@ export class PersonTrackStore {
       state.totalFrameCount += 1;
       const result = rawBodyScale(person, width, height);
       state.rawScale = result.scale;
+      track.pendingScaleSamples.forEach((sample) => {
+        if (sample.scale === null) {
+          state.zoneDecision.update({
+            timestampMs: sample.timestampMs,
+            filtScale: null,
+            postureValid: false,
+          });
+          return;
+        }
+        const medScale = state.median.push(sample.scale);
+        const filtScale = state.euro.filter(medScale, sample.timestampMs);
+        state.zoneDecision.update({
+          timestampMs: sample.timestampMs,
+          filtScale,
+          postureValid: sample.postureValid,
+        });
+      });
+      track.pendingScaleSamples.length = 0;
       if (result.scale === null) {
         state.nullFrameCount += 1;
         state.medScale = null;
@@ -437,6 +530,12 @@ export class PersonTrackStore {
         baselineInitCount: decision.baselineInitCount,
         postureInvalidForMs: decision.postureInvalidForMs,
         zoneProxy: interactionConfig.zoneProxy,
+        waveActive: false,
+        waveCrossings: 0,
+        waveAmplitude: 0,
+        waveProgress: 0,
+        waveConfirmed: false,
+        waveSide: null,
         footYNorm: person.footPoint.y,
         existingZone: decisionZone,
         activeCount: zones.activePeople.length,
@@ -531,6 +630,7 @@ export class PersonTrackStore {
       lastCenterY: person.centerY,
       lastRawScale: rawScale,
       torsoAspectHistory: [],
+      pendingScaleSamples: [],
     };
     this.tracks.set(stableTrackId, track);
     this.rawToStable.set(rawTrackId, stableTrackId);

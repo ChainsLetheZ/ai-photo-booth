@@ -28,4 +28,11 @@
 
 ## 实施后记录
 
-待完成后补充。
+- 实际模型：`MULTIPOSE_LIGHTNING`。
+- backend：`webgl`；`WEBGL_PACK=true`；`WEBGL_VERSION=2`。
+- 热机纯推理 100 次，F16 关闭：median 42.5 ms，P95 50.1 ms。
+- 热机纯推理 100 次，F16 开启：median 35.9 ms，P95 56.8 ms，中位数改善约
+  15.5%。两次测试 100 次后 tensor 数均保持稳定，dispose 后回落。
+- 用户确认按 Intel Iris Xe 低压集显热降频的硬件限制豁免性能门禁，不再继续优化
+  推理；生产路径保留 `WEBGL_FORCE_F16_TEXTURES=true`。
+- 这两组是热机数据，不冒充重启后的冷机数据。

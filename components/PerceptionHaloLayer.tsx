@@ -1,11 +1,21 @@
 import React, { useEffect, useRef } from 'react';
-import { interactionConfig } from '../config/interactionConfig';
+import {
+  effectiveInteractionConfig,
+  interactionConfig,
+} from '../config/interactionConfig';
+import { simpleMode } from '../config/simpleMode';
 import type { InteractionEngineSnapshot } from '../interaction/InteractionController';
 import type {
   Landmark,
   PersonObservation,
 } from '../perception/types';
+import type { HandCrop } from '../perception/MediaPipeGestureService';
+import { pipelineHealth } from '../perception/PipelineHealthStore';
 import { recordRenderTiming } from '../perception/RenderTimingStore';
+import {
+  createVideoViewportMapping,
+  type VideoViewportMapping,
+} from '../utils/viewportTransform';
 
 interface Props {
   snapshot: InteractionEngineSnapshot;
@@ -25,30 +35,6 @@ interface ArmMotion {
 
 function clamp01(value: number) {
   return Math.max(0, Math.min(1, value));
-}
-
-function viewportTransform(
-  video: HTMLVideoElement,
-  width: number,
-  height: number,
-) {
-  const sourceWidth = Math.max(1, video.videoWidth || width);
-  const sourceHeight = Math.max(1, video.videoHeight || height);
-  const scale = Math.max(width / sourceWidth, height / sourceHeight);
-  const renderedWidth = sourceWidth * scale;
-  const renderedHeight = sourceHeight * scale;
-  const offsetX = (width - renderedWidth) / 2;
-  const offsetY = (height - renderedHeight) / 2;
-  return {
-    point(x: number, y: number) {
-      return {
-        x: width - (offsetX + x * renderedWidth),
-        y: offsetY + y * renderedHeight,
-      };
-    },
-    renderedWidth,
-    renderedHeight,
-  };
 }
 
 function haloColor(active: boolean, initiator: boolean) {
@@ -143,7 +129,7 @@ function visibleLandmarks(person: PersonObservation) {
 
 function bodyHull(
   person: PersonObservation,
-  transform: ReturnType<typeof viewportTransform>,
+  transform: VideoViewportMapping,
 ) {
   return convexHull(
     visibleLandmarks(person).map((point) =>
@@ -155,7 +141,7 @@ function bodyHull(
 function drawEllipseFallback(
   context: CanvasRenderingContext2D,
   person: PersonObservation,
-  transform: ReturnType<typeof viewportTransform>,
+  transform: VideoViewportMapping,
 ) {
   const topLeft = transform.point(person.bounds.xMax, person.bounds.yMin);
   const bottomRight = transform.point(person.bounds.xMin, person.bounds.yMax);
@@ -177,13 +163,15 @@ function drawEllipseFallback(
 function drawHalo(
   context: CanvasRenderingContext2D,
   person: PersonObservation,
-  transform: ReturnType<typeof viewportTransform>,
+  transform: VideoViewportMapping,
   time: number,
   active: boolean,
   initiator: boolean,
   ambient: boolean,
   motion: ArmMotion | null,
   confirmationElapsed: number | null,
+  collapseProgress: number | null,
+  muted: boolean,
 ) {
   const feedback = interactionConfig.feedback;
   const confirmationPulse =
@@ -194,7 +182,9 @@ function drawHalo(
             Math.PI,
         );
   const hull = bodyHull(person, transform);
-  const padding = Math.max(12, 24 - confirmationPulse * 8);
+  const collapsePadding =
+    collapseProgress === null ? 24 : 24 + (1 - collapseProgress) * 18;
+  const padding = Math.max(12, collapsePadding - confirmationPulse * 8);
   const samples =
     hull.length >= 3
       ? sampleClosedPath(expandedHull(hull, padding))
@@ -211,6 +201,7 @@ function drawHalo(
     : 1;
 
   context.save();
+  context.globalAlpha = muted ? 0.34 : 1;
   context.globalCompositeOperation = 'screen';
   samples.forEach((sample, index) => {
     const wristDistance = motion
@@ -308,7 +299,7 @@ function drawArm(
   context: CanvasRenderingContext2D,
   person: PersonObservation,
   arm: 'left' | 'right',
-  transform: ReturnType<typeof viewportTransform>,
+  transform: VideoViewportMapping,
   holdProgress: number,
   confirmationElapsed: number | null,
 ) {
@@ -386,7 +377,7 @@ function drawArm(
 function drawFirstRecognition(
   context: CanvasRenderingContext2D,
   person: PersonObservation,
-  transform: ReturnType<typeof viewportTransform>,
+  transform: VideoViewportMapping,
   progress: number,
 ) {
   const fade = Math.sin(clamp01(progress) * Math.PI);
@@ -416,7 +407,7 @@ function drawFirstRecognition(
 function armMotionFor(
   person: PersonObservation,
   arm: 'left' | 'right' | null,
-  transform: ReturnType<typeof viewportTransform>,
+  transform: VideoViewportMapping,
   progress: number,
 ): ArmMotion | null {
   if (!arm) return null;
@@ -436,7 +427,7 @@ function armMotionFor(
 
 function drawDebugZones(
   context: CanvasRenderingContext2D,
-  transform: ReturnType<typeof viewportTransform>,
+  transform: VideoViewportMapping,
   width: number,
   height: number,
 ) {
@@ -474,6 +465,71 @@ function drawDebugZones(
     `Z2 CAPTURE · ≈${interactionConfig.zones.approximateForwardStepMeters.toFixed(1)}M STEP`,
     width - 20,
     Math.min(height - 18, captureY + 22),
+  );
+  context.restore();
+}
+
+function drawHandGestureCrop(
+  context: CanvasRenderingContext2D,
+  transform: VideoViewportMapping,
+  crop: HandCrop,
+) {
+  const first = transform.point(
+    crop.sourceX / crop.sourceWidth,
+    crop.sourceY / crop.sourceHeight,
+  );
+  const second = transform.point(
+    (crop.sourceX + crop.sourceSize) / crop.sourceWidth,
+    (crop.sourceY + crop.sourceSize) / crop.sourceHeight,
+  );
+  const x = Math.min(first.x, second.x);
+  const y = Math.min(first.y, second.y);
+  const width = Math.abs(second.x - first.x);
+  const height = Math.abs(second.y - first.y);
+  context.save();
+  context.strokeStyle = 'rgba(255, 229, 112, .95)';
+  context.fillStyle = 'rgba(255, 229, 112, .92)';
+  context.lineWidth = 2;
+  context.setLineDash([7, 5]);
+  context.shadowColor = 'rgba(255, 229, 112, .9)';
+  context.shadowBlur = 10;
+  context.strokeRect(x, y, width, height);
+  context.setLineDash([]);
+  context.font = '700 11px Arial';
+  context.textAlign = 'left';
+  context.fillText(
+    `HAND CROP ${crop.inputSize}px · ${crop.side.toUpperCase()}`,
+    x,
+    Math.max(14, y - 8),
+  );
+  context.restore();
+}
+
+function drawCaptureBoundary(
+  context: CanvasRenderingContext2D,
+  transform: VideoViewportMapping,
+) {
+  const boundary = transform.captureBoundary();
+  const inset = 4;
+  context.save();
+  context.strokeStyle = 'rgba(255, 49, 64, .98)';
+  context.fillStyle = 'rgba(255, 49, 64, .98)';
+  context.lineWidth = 3;
+  context.shadowColor = 'rgba(255, 24, 42, .85)';
+  context.shadowBlur = 9;
+  context.strokeRect(
+    boundary.x + inset,
+    boundary.y + inset,
+    Math.max(0, boundary.width - inset * 2),
+    Math.max(0, boundary.height - inset * 2),
+  );
+  context.shadowBlur = 0;
+  context.font = '800 11px Arial';
+  context.textAlign = 'left';
+  context.fillText(
+    'CAPTURE BOUNDARY',
+    boundary.x + 12,
+    boundary.y + 22,
   );
   context.restore();
 }
@@ -516,7 +572,7 @@ export default function PerceptionHaloLayer({
       context.clearRect(0, 0, bounds.width, bounds.height);
 
       const current = snapshotRef.current;
-      const transform = viewportTransform(video, bounds.width, bounds.height);
+      const transform = createVideoViewportMapping(video, bounds, true);
       const readingById = new Map(
         current.zones.readings.map((reading) => [
           reading.personId,
@@ -543,21 +599,27 @@ export default function PerceptionHaloLayer({
             interactionConfig.feedback.confirmationFadeMs;
       const gestureVisualProgress = Math.max(
         current.stability.progress,
+        current.simpleFlow?.handRaised ? 1 : 0,
         clamp01(
           ((current.gesture?.matchScore ?? 0) -
             interactionConfig.raiseArmStartScore) /
             Math.max(
               0.01,
-              interactionConfig.raiseArmConfirmScore -
+              effectiveInteractionConfig.raiseArmScoreThreshold -
                 interactionConfig.raiseArmStartScore,
             ),
         ),
       );
 
+      let peopleDrawn = 0;
       current.frame?.people.forEach((person) => {
         const zone = readingById.get(person.id);
-        if (!zone) return;
-        const engaged = zone !== 'PASSERBY';
+        if (!zone && !simpleMode.enabled) return;
+        peopleDrawn += 1;
+        const simpleActive = Boolean(
+          simpleMode.enabled && current.state !== 'IDLE',
+        );
+        const engaged = simpleMode.enabled ? simpleActive : zone !== 'PASSERBY';
         if (engaged && !firstRecognitionAtRef.current.has(person.id)) {
           firstRecognitionAtRef.current.set(person.id, time);
         }
@@ -575,11 +637,17 @@ export default function PerceptionHaloLayer({
           person,
           transform,
           time,
-          activeIds.has(person.id),
+          simpleMode.enabled ? simpleActive : activeIds.has(person.id),
           isInitiator,
           !engaged,
           motion,
           isInitiator && confirmationVisible ? confirmationElapsed : null,
+          current.state === 'PERCEIVING'
+            ? clamp01(
+                (current.simpleFlow?.heldMs ?? 0) / simpleMode.haloCollapseMs,
+              )
+            : null,
+          current.state === 'COUNTDOWN',
         );
 
         const recognizedAt = firstRecognitionAtRef.current.get(person.id);
@@ -596,6 +664,21 @@ export default function PerceptionHaloLayer({
             );
           }
         }
+
+        if (
+          simpleMode.enabled &&
+          current.state === 'LOCKED' &&
+          !current.initiatorId
+        ) {
+          drawFirstRecognition(
+            context,
+            person,
+            transform,
+            clamp01(
+              (current.simpleFlow?.heldMs ?? 0) / simpleMode.lockedFeedbackMs,
+            ),
+          );
+        }
       });
 
       const initiator = current.frame?.people.find(
@@ -604,7 +687,10 @@ export default function PerceptionHaloLayer({
       if (
         initiator &&
         current.gesture?.arm &&
-        (current.state === 'DIRECT' || confirmationVisible)
+        (current.state === 'DIRECT' ||
+          current.state === 'PERCEIVING' ||
+          current.state === 'LOCKED' ||
+          confirmationVisible)
       ) {
         drawArm(
           context,
@@ -620,7 +706,16 @@ export default function PerceptionHaloLayer({
         new URLSearchParams(window.location.search).get('debug') === 'true'
       ) {
         drawDebugZones(context, transform, bounds.width, bounds.height);
+        drawCaptureBoundary(context, transform);
+        if (current.handGesture?.crop) {
+          drawHandGestureCrop(context, transform, current.handGesture.crop);
+        }
       }
+      pipelineHealth.reportRender({
+        source: 'halo',
+        available: current.frame?.people.length ?? 0,
+        drawn: peopleDrawn,
+      });
       recordRenderTiming('halo', performance.now() - renderStarted);
     };
     animationFrame = window.requestAnimationFrame(draw);

@@ -1,4 +1,5 @@
 import { interactionConfig } from '../config/interactionConfig';
+import { roiToVideo } from '../utils/viewportTransform';
 import type { PoseEstimator } from './PoseEstimator';
 import type {
   BodyJoint,
@@ -180,6 +181,21 @@ function readRuntimeNumber(
   } catch {
     return null;
   }
+}
+
+/**
+ * `?f16=off` / `?f16=on` overrides WEBGL_FORCE_F16_TEXTURES for one page load.
+ * The flag was enabled for a 15.5% speed gain measured on a blank input, so its
+ * effect on detection quality can only be compared A/B against live video.
+ */
+function forceF16Override(): boolean | undefined {
+  if (typeof window === 'undefined') return undefined;
+  const value = new URLSearchParams(window.location.search)
+    .get('f16')
+    ?.toLowerCase();
+  if (value === 'off' || value === 'false' || value === '0') return false;
+  if (value === 'on' || value === 'true' || value === '1') return true;
+  return undefined;
 }
 
 function readTensorCount(runtime: NonNullable<RuntimeWindow['tf']>) {
@@ -380,6 +396,8 @@ export class MoveNetPoseService implements PoseEstimator {
     inferMs: 0,
     postMs: 0,
   };
+  private lastRawPoseCount = 0;
+  private lastTopPoseScore: number | null = null;
 
   private constructor(
     private readonly detector: MoveNetDetector,
@@ -388,7 +406,7 @@ export class MoveNetPoseService implements PoseEstimator {
 
   static async create() {
     const runtime = await initializeMoveNetRuntime(
-      interactionConfig.moveNet.forceF16Textures,
+      forceF16Override() ?? interactionConfig.moveNet.forceF16Textures,
     );
     const detector = await createMoveNetDetector(runtime);
     const service = new MoveNetPoseService(detector, runtime.tf);
@@ -496,24 +514,32 @@ export class MoveNetPoseService implements PoseEstimator {
     const inferMs = performance.now() - inferStarted;
     const postStarted = performance.now();
 
+    // Recorded before the minPoseScore gate: a frame with no people is not the
+    // same failure as a frame the model scored just under the threshold.
+    this.lastRawPoseCount = poses.length;
+    this.lastTopPoseScore = poses.length
+      ? Math.max(...poses.map((pose) => pose.score ?? 0))
+      : null;
+
     const people = poses
       .filter(
         (pose) =>
           (pose.score ?? 1) >= interactionConfig.perception.minPoseScore,
       )
       .map((pose, index) => {
-        const landmarks = pose.keypoints.map((point) => ({
-          x:
-            (input.sourceX +
-              (point.x / input.inputWidth) * input.sourceWidth) /
-            width,
-          y:
-            (input.sourceY +
-              (point.y / input.inputHeight) * input.sourceHeight) /
-            height,
-          z: 0,
-          visibility: point.score ?? 1,
-        }));
+        const landmarks = pose.keypoints.map((point) => {
+          const videoPoint = roiToVideo(point.x, point.y, input);
+          return {
+            x: videoPoint.x / width,
+            y: videoPoint.y / height,
+            z: 0,
+            visibility: point.score ?? 1,
+            coordinateTrace: {
+              roi: { x: point.x, y: point.y },
+              video: videoPoint,
+            },
+          };
+        });
         const keypoints: BodyKeypoints = {};
         pose.keypoints.forEach((point, keypointIndex) => {
           const jointName =
@@ -612,6 +638,9 @@ export class MoveNetPoseService implements PoseEstimator {
       roiInputHeight: this.inputHeight,
       maxPoses: interactionConfig.perception.maxPoses,
       modelType: 'MULTIPOSE_LIGHTNING',
+      rawPoseCount: this.lastRawPoseCount,
+      topPoseScore: this.lastTopPoseScore,
+      minPoseScore: interactionConfig.perception.minPoseScore,
       webglFlags: {
         WEBGL_PACK: this.readWebglBool('WEBGL_PACK'),
         WEBGL_FORCE_F16_TEXTURES: this.readWebglBool(

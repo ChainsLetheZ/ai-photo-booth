@@ -4,6 +4,10 @@ export interface Landmark {
   z: number;
   visibility?: number;
   presence?: number;
+  coordinateTrace?: {
+    roi: { x: number; y: number };
+    video: { x: number; y: number };
+  };
 }
 
 export type BodyJoint =
@@ -70,6 +74,11 @@ export interface PerceptionDiagnostics {
   maxPoses: number;
   modelType?: string;
   webglFlags?: Record<string, boolean | number | string | null>;
+  /** Poses the model returned, before the minPoseScore gate. */
+  rawPoseCount?: number;
+  /** Best pose score the model produced, before the gate. */
+  topPoseScore?: number | null;
+  minPoseScore?: number;
 }
 
 export interface HandObservation {

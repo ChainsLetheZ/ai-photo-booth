@@ -1,4 +1,7 @@
 import type { SecondaryDimension } from '../types';
+import type { BodyJoint } from '../perception/types';
+import { demoMode } from './demoMode';
+import { handGesture, simpleMode, simpleModeGesture } from './simpleMode';
 
 export const perception = {
   preferredEngine: 'movenet' as const,
@@ -66,6 +69,37 @@ export const dwellConfig = {
 
 export const zoneProxy = 'bodyScale' as const satisfies 'bodyScale' | 'footY';
 
+export const zoneBypass = {
+  enabled: true,
+  forceZone: 'CAPTURE_ZONE' as const,
+  minPersonScaleRatio: 0.1,
+} as const;
+
+export const waveGesture = {
+  enabled: true,
+  windowMs: 1500,
+  minCrossings: 2,
+  minAmplitude: 0.3,
+  deadzone: 0.08,
+  wristAboveShoulderRatio: 0.15,
+  holdAfterConfirmMs: 400,
+  releaseTimeoutMs: 800,
+} as const;
+
+export const gestureMode = {
+  acceptRaiseArm: true,
+  acceptWave: true,
+  acceptHandGestures: false,
+} as const;
+
+export const defaultInFrameRequiredKeypoints = [
+  'nose',
+  'leftShoulder',
+  'rightShoulder',
+  'leftHip',
+  'rightHip',
+] as const satisfies readonly BodyJoint[];
+
 export const bodyScaleProbe = {
   enabled: true,
   minKeypointConfidence: perception.minKeypointConfidence,
@@ -93,10 +127,23 @@ export const interactionConfig = {
   zoneThresholds,
   dwell: dwellConfig,
   zoneProxy,
+  zoneBypass,
+  waveGesture,
+  gestureMode,
+  demoMode,
+  simpleMode,
+  simpleModeGesture,
+  handGesture,
   moveNet: {
     modelPath: '/models/movenet/model.json',
     scoreThreshold: 0.24,
-    forceF16Textures: true,
+    // Half-precision textures were enabled for a 15.5% speed gain measured on a
+    // blank input, so that benchmark could not see what they cost in accuracy.
+    // Against live video they coincided with keypoint scores sitting on the
+    // sanity thresholds (leftHip 0.48 vs 0.50), intermittent total
+    // non-detection, and sub-40px ghost poses. Precision is worth ~6.6ms here.
+    // `?f16=on` restores the old behaviour for one page load.
+    forceF16Textures: false,
     scriptUrls: [
       '/vendor/movenet/tf-core.min.js',
       '/vendor/movenet/tf-converter.min.js',
@@ -157,6 +204,53 @@ export const interactionConfig = {
   featureHistoryMs: 2400,
   narrativeTimeoutMs: 1800,
   defaultPrimary: 'Intelligence' as const,
+} as const;
+
+export const effectiveInteractionConfig = {
+  trackConfirmFrames: demoMode.enabled
+    ? demoMode.trackConfirmFrames
+    : interactionConfig.tracking.trackConfirmFrames,
+  minPersonScaleRatio: demoMode.enabled
+    ? demoMode.minPersonScaleRatio
+    : interactionConfig.zoneBypass.minPersonScaleRatio,
+  activeGroupStableMs: demoMode.enabled
+    ? demoMode.activeGroupStableMs
+    : interactionConfig.zones.activeGroupSettleMs,
+  preGestureDelayMs: demoMode.enabled
+    ? demoMode.preGestureDelayMs
+    : interactionConfig.directLeadInMs,
+  inFrameRequiredKeypoints: demoMode.enabled
+    ? demoMode.inFrameRequiredKeypoints
+    : defaultInFrameRequiredKeypoints,
+  raiseArmScoreThreshold: demoMode.enabled
+    ? demoMode.raiseArmScoreThreshold
+    : interactionConfig.raiseArmConfirmScore,
+  raiseArmHoldMs: demoMode.enabled
+    ? demoMode.raiseArmHoldMs
+    : interactionConfig.gestureConfirmMs,
+  waveMinCrossings: demoMode.enabled
+    ? demoMode.waveMinCrossings
+    : interactionConfig.waveGesture.minCrossings,
+  waveMinAmplitude: demoMode.enabled
+    ? demoMode.waveMinAmplitude
+    : interactionConfig.waveGesture.minAmplitude,
+  postGestureDelayMs: demoMode.enabled ? demoMode.postGestureDelayMs : null,
+  countdownAllowIdChange:
+    demoMode.enabled && demoMode.countdownAllowIdChange,
+  countdownGracePeriodMs: demoMode.enabled
+    ? demoMode.countdownGracePeriodMs
+    : interactionConfig.trackingLossGraceMs,
+  requireInFrame: demoMode.enabled ? demoMode.requireInFrame : true,
+  countdownSkipValidation:
+    demoMode.enabled && demoMode.countdownSkipValidation,
+  gestureFallbackMs: demoMode.enabled ? demoMode.gestureFallbackMs : null,
+  manualShutterEnabled:
+    demoMode.enabled && demoMode.manualShutterEnabled,
+  instructionCycleMs: demoMode.enabled
+    ? demoMode.instructionCycleMs
+    : null,
+  immediateGestureFeedback:
+    demoMode.enabled && demoMode.immediateGestureFeedback,
 } as const;
 
 export type InteractionConfig = typeof interactionConfig;

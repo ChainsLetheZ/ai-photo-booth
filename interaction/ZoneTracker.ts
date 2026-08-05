@@ -13,7 +13,7 @@ export interface PersonZoneReading {
   stableZone: InteractionZone;
   stableForMs: number;
   credit: number;
-  proxy: 'bodyScale' | 'footY';
+  proxy: 'bypass' | 'bodyScale' | 'footY';
 }
 
 export interface ZoneSnapshot {
@@ -59,6 +59,14 @@ export class ZoneTracker {
   private activeSignature = '';
   private activeSignatureSince = 0;
 
+  constructor(
+    private readonly bypassEnabled = false,
+    private readonly bypassMinPersonScaleRatio: number =
+      interactionConfig.zoneBypass.minPersonScaleRatio,
+    private readonly activeGroupStableMs: number =
+      interactionConfig.zones.activeGroupSettleMs,
+  ) {}
+
   update(
     frame: PerceptionFrame,
     scaleReadings: TrackScaleReading[] = [],
@@ -69,15 +77,21 @@ export class ZoneTracker {
     );
     const readings = people.map((person) => {
       const scaleReading = scaleById.get(person.id);
+      const useBypass = this.bypassEnabled;
       const useBodyScale =
-        interactionConfig.zoneProxy === 'bodyScale' && scaleReading !== undefined;
+        !useBypass &&
+        interactionConfig.zoneProxy === 'bodyScale' &&
+        scaleReading !== undefined;
       let track = this.tracks.get(person.id);
       if (!track) {
-        const initialCandidate = useBodyScale
-          ? this.bodyScaleZone(person, scaleReading)
-          : this.footZone(person, 'PASSERBY');
+        const initialCandidate = useBypass
+          ? this.bypassZone(person)
+          : useBodyScale
+            ? this.bodyScaleZone(person, scaleReading)
+            : this.footZone(person, 'PASSERBY');
         track = {
-          stableZone: useBodyScale ? initialCandidate : 'PASSERBY',
+          stableZone:
+            useBypass || useBodyScale ? initialCandidate : 'PASSERBY',
           candidateZone: initialCandidate,
           candidateSince: timestamp,
           stableSince: timestamp,
@@ -86,11 +100,13 @@ export class ZoneTracker {
         this.tracks.set(person.id, track);
       }
 
-      const rawZone = useBodyScale
-        ? this.bodyScaleZone(person, scaleReading)
-        : this.footZone(person, track.stableZone);
+      const rawZone = useBypass
+        ? this.bypassZone(person)
+        : useBodyScale
+          ? this.bodyScaleZone(person, scaleReading)
+          : this.footZone(person, track.stableZone);
       track.lastSeenAt = timestamp;
-      if (useBodyScale && rawZone !== track.stableZone) {
+      if ((useBypass || useBodyScale) && rawZone !== track.stableZone) {
         track.stableZone = rawZone;
         track.candidateZone = rawZone;
         track.candidateSince = timestamp;
@@ -112,7 +128,11 @@ export class ZoneTracker {
         stableZone: track.stableZone,
         stableForMs: timestamp - track.stableSince,
         credit: scaleReading?.credit ?? 0,
-        proxy: useBodyScale ? 'bodyScale' : 'footY',
+        proxy: useBypass
+          ? ('bypass' as const)
+          : useBodyScale
+            ? ('bodyScale' as const)
+            : ('footY' as const),
       };
     });
 
@@ -150,8 +170,7 @@ export class ZoneTracker {
     const activeStable =
       activeIds.length > 0 &&
       !overflow &&
-      timestamp - this.activeSignatureSince >=
-        interactionConfig.zones.activeGroupSettleMs;
+      timestamp - this.activeSignatureSince >= this.activeGroupStableMs;
 
     return {
       visiblePeople: people,
@@ -169,6 +188,28 @@ export class ZoneTracker {
     this.tracks.clear();
     this.activeSignature = '';
     this.activeSignatureSince = 0;
+  }
+
+  private bypassZone(person: PersonObservation): InteractionZone {
+    const { leftShoulder, rightShoulder, leftHip, rightHip } = person.keypoints;
+    if (!leftShoulder || !rightShoulder || !leftHip || !rightHip) {
+      return 'PASSERBY';
+    }
+    const shoulderMidpoint = {
+      x: (leftShoulder.x + rightShoulder.x) / 2,
+      y: (leftShoulder.y + rightShoulder.y) / 2,
+    };
+    const hipMidpoint = {
+      x: (leftHip.x + rightHip.x) / 2,
+      y: (leftHip.y + rightHip.y) / 2,
+    };
+    const torsoScaleRatio = Math.hypot(
+      hipMidpoint.x - shoulderMidpoint.x,
+      hipMidpoint.y - shoulderMidpoint.y,
+    );
+    return torsoScaleRatio >= this.bypassMinPersonScaleRatio
+      ? interactionConfig.zoneBypass.forceZone
+      : 'PASSERBY';
   }
 
   private bodyScaleZone(

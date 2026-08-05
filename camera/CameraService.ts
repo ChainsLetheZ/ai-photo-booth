@@ -1,3 +1,5 @@
+import { getCoverSourceRect } from '../utils/viewportTransform';
+
 export type CameraStatus =
   | 'idle'
   | 'starting'
@@ -70,11 +72,32 @@ export class BrowserCameraService implements CameraService {
     }
 
     const canvas = document.createElement('canvas');
-    canvas.width = this.video.videoWidth || 1280;
-    canvas.height = this.video.videoHeight || 960;
+    const videoWidth = this.video.videoWidth || 1280;
+    const videoHeight = this.video.videoHeight || 960;
+    const display = this.video.getBoundingClientRect();
+    const cover = getCoverSourceRect(
+      videoWidth,
+      videoHeight,
+      display.width || videoWidth,
+      display.height || videoHeight,
+    );
+    canvas.width = Math.max(1, Math.round(cover.sw));
+    canvas.height = Math.max(1, Math.round(cover.sh));
     const context = canvas.getContext('2d');
     if (!context) throw new Error('Canvas is unavailable.');
-    context.drawImage(this.video, 0, 0, canvas.width, canvas.height);
+    // Capture the exact source rectangle visible through CSS object-fit: cover.
+    // The saved image intentionally stays unmirrored.
+    context.drawImage(
+      this.video,
+      cover.sx,
+      cover.sy,
+      cover.sw,
+      cover.sh,
+      0,
+      0,
+      canvas.width,
+      canvas.height,
+    );
 
     const blob = await new Promise<Blob | null>((resolve) => {
       canvas.toBlob(resolve, 'image/jpeg', 0.92);

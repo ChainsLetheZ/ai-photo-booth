@@ -4,15 +4,17 @@ import type {
   Landmark,
   PersonObservation,
 } from '../perception/types';
+import type { WaveState } from './WaveGestureRule';
 
 export type RaisedArmSide = 'left' | 'right';
 
 export interface GestureRuleResult {
-  requiredPrimitive: 'RAISE_ONE_ARM';
+  requiredPrimitive: 'RAISE_ONE_ARM' | 'WAVE';
   satisfied: boolean;
   matchScore: number;
   initiatorId: string | null;
   arm: RaisedArmSide | null;
+  wave?: WaveState;
 }
 function clamp01(value: number) {
   return Math.max(0, Math.min(1, value));
@@ -70,6 +72,7 @@ function personGesture(person: PersonObservation) {
 export function evaluateRaiseArm(
   people: PersonObservation[],
   lockedInitiatorId: string | null = null,
+  confirmScore: number = interactionConfig.raiseArmConfirmScore,
 ): GestureRuleResult {
   const eligible = lockedInitiatorId
     ? people.filter((person) => person.id === lockedInitiatorId)
@@ -86,7 +89,7 @@ export function evaluateRaiseArm(
     requiredPrimitive: 'RAISE_ONE_ARM',
     satisfied:
       Boolean(initiatorId) &&
-      matchScore >= interactionConfig.raiseArmConfirmScore,
+      matchScore >= confirmScore,
     matchScore,
     initiatorId,
     arm: initiatorId ? best.arm : null,

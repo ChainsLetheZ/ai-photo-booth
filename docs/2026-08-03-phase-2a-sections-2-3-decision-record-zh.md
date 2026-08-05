@@ -35,4 +35,23 @@
 
 ## 实施结果
 
-待完成后补充。
+- 新增每 track 独立的 `BodyScaleZoneDecision`，生产决策链为：
+  `filtScale → 5 帧中位 baseline → g → posture 门控 → credit → Z1/Z2`。
+- `zoneProxy` 默认 `bodyScale`；生产传入 scale 决策读数时脚点完全不参与区域判定，
+  `footY` 仍可通过配置切换，并继续保留在 debug 曲线和 CSV。
+- baseline 仅在漂移与速度同时稳定时以 0.005 跟随；进入 Z2 当帧冻结，退出后稳定
+  1 秒再解冻。track 确认前已连续通过 sanity 的 4 帧与确认帧共同组成 5 帧初始化
+  窗口，避免单帧初始化并保持既有 track 回归测试兼容。
+- 泄漏积分器使用真实帧间 `dt`，进入 0.7 秒、退出 0.3 秒；1.020～1.045 死区内
+  credit 保持。Z2 内的“留在近端”证据不会预充值额外退出延迟。
+- posture 无效帧不投票、不更新 baseline、不改变 credit，并记录连续无效时长。
+- debug 面板显示实时 g、credit、环形进度、代理类型、进入/退出阈值和 dwell；曲线
+  增加两条阈值线；CSV 增加 credit、g 速度、代理、初始化计数和 posture 无效时长。
+- 生产 MoveNet 初始化显式读取 `forceF16Textures: true`。本地 debug 页面实测显示
+  `FORCE_F16_TEXTURES:true`、`PACK:true`、`VERSION:2`、模型为
+  `MULTIPOSE_LIGHTNING`。
+- 新增 `tests/zoneDecision.test.ts` 与真实 fixture。原始 CSV 产生 5 次进入、4 次退出、
+  0 次额外翻转；文件在第 5 次近端停留时结束，缺少最后退回。测试明确验证这一
+  事实，并用同文件同机位的真实远端平台样本补齐尾段后验证第 5 次退出。
+- 未修改任何既有测试文件。五个规则测试文件全部通过，`tsc --noEmit` 通过，Vite
+  与 server 生产构建通过（仅保留既有 MediaPipe eval/大 chunk 警告）。

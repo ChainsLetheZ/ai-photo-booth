@@ -1,6 +1,7 @@
 import { interactionConfig } from '../config/interactionConfig';
 import { MediaPipePoseService } from './MediaPipePoseService';
 import { MoveNetPoseService } from './MoveNetPoseService';
+import { pipelineHealth } from './PipelineHealthStore';
 import type { PoseEstimator } from './PoseEstimator';
 import type {
   PerceptionFrame,
@@ -118,9 +119,16 @@ export class PerceptionManager {
     this.schedule();
     const now = performance.now();
     const interval = 1000 / interactionConfig.perception.targetFps;
+    const due = now - this.lastInferenceAt >= interval;
+    const blocked =
+      this.busy || this.video.readyState < 2 || !this.poseService;
+    pipelineHealth.reportCapture(
+      { readyState: this.video.readyState, due, started: due && !blocked },
+      now,
+    );
     if (
       this.busy ||
-      now - this.lastInferenceAt < interval ||
+      !due ||
       this.video.readyState < 2 ||
       !this.poseService
     ) {

@@ -77,53 +77,64 @@ function person(options: {
   };
 }
 
+// `rejectDetail` carries diagnostic numbers that vary with the fixture, so
+// rejections are asserted on pass/reason rather than the whole result object.
+function assertReject(
+  result: ReturnType<typeof poseSanityFilter>,
+  rejectReason: string,
+) {
+  assert.equal(result.pass, false);
+  assert.equal(result.rejectReason, rejectReason);
+  assert.ok(result.rejectDetail, `${rejectReason} reports its measurements`);
+}
+
 assert.deepEqual(poseSanityFilter(person(), FRAME_WIDTH, FRAME_HEIGHT), {
   pass: true,
 });
 
-assert.deepEqual(
+assertReject(
   poseSanityFilter(
     person({ shoulderWidthPx: 1.1 }),
     FRAME_WIDTH,
     FRAME_HEIGHT,
   ),
-  { pass: false, rejectReason: 'too_small' },
+  'too_small',
 );
 
-assert.deepEqual(
+assertReject(
   poseSanityFilter(
     person({ torsoPx: 55.5 }),
     FRAME_WIDTH,
     FRAME_HEIGHT,
   ),
-  { pass: false, rejectReason: 'too_small' },
+  'too_small',
 );
 
-assert.deepEqual(
+assertReject(
   poseSanityFilter(
     person({ validExtras: 0 }),
     FRAME_WIDTH,
     FRAME_HEIGHT,
   ),
-  { pass: false, rejectReason: 'few_keypoints' },
+  'few_keypoints',
 );
 
-assert.deepEqual(
+assertReject(
   poseSanityFilter(
     person({ missing: 'leftHip' }),
     FRAME_WIDTH,
     FRAME_HEIGHT,
   ),
-  { pass: false, rejectReason: 'missing_core' },
+  'missing_core',
 );
 
-assert.deepEqual(
+assertReject(
   poseSanityFilter(
     person({ centerX: 0.02 }),
     FRAME_WIDTH,
     FRAME_HEIGHT,
   ),
-  { pass: false, rejectReason: 'out_of_roi' },
+  'out_of_roi',
 );
 
 assert.deepEqual(

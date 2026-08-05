@@ -11,7 +11,11 @@ import {
   type CameraStatus,
 } from '../camera/CameraService';
 import PerceptionHaloLayer from '../components/PerceptionHaloLayer';
-import { interactionConfig } from '../config/interactionConfig';
+import {
+  effectiveInteractionConfig,
+  interactionConfig,
+} from '../config/interactionConfig';
+import { simpleMode } from '../config/simpleMode';
 import { ENERGY_CONFIG, EVENT } from '../constants';
 import PerceptionDebugOverlay from '../debug/PerceptionDebugOverlay';
 import {
@@ -24,8 +28,12 @@ import {
   type NarrativeMetadata,
 } from '../narrative/NarrativeService';
 import { renderFuturePortrait } from '../services/portraitRenderer';
-import { publishPortrait } from '../services/portraitStore';
-import type { BehaviorReading, PortraitRecord } from '../types';
+import { capturePoseTrace } from '../services/poseTrace';
+import {
+  publishPortrait,
+  reserveWallCode,
+} from '../services/portraitStore';
+import type { BehaviorReading, PortraitRecord, PoseTrace } from '../types';
 
 function makeFallbackCapture() {
   const canvas = document.createElement('canvas');
@@ -65,18 +73,30 @@ function mainInstruction(
   }
   if (engine.zones.overflow) return 'MAX 5 PEOPLE — PLEASE SPLIT INTO TWO GROUPS';
   switch (engine.state) {
+    case 'IDLE':
+      return 'STEP INTO VIEW';
+    case 'PERCEIVING':
+      return (engine.simpleFlow?.heldMs ?? 0) < simpleMode.iSeeYouMs
+        ? 'I SEE YOU'
+        : 'READING YOUR POSE';
+    case 'LOCKED':
+      return 'LOCKED';
     case 'PASSERBY':
       return cameraStatus === 'ready' ? 'STEP INTO VIEW' : 'CAMERA NEEDS ATTENTION';
     case 'ENGAGED':
-      return `STEP FORWARD ABOUT ${interactionConfig.zones.approximateForwardStepMeters.toFixed(1)} M`;
+      return interactionConfig.zoneBypass.enabled
+        ? 'HOLD YOUR POSITION'
+        : `STEP FORWARD ABOUT ${interactionConfig.zones.approximateForwardStepMeters.toFixed(1)} M`;
     case 'CAPTURE_ZONE':
       return engine.zones.capturePeople.length
         ? 'HOLD YOUR POSITION'
-        : 'STEP INTO THE CAPTURE AREA';
+        : interactionConfig.zoneBypass.enabled
+          ? 'STAY IN VIEW'
+          : 'STEP INTO THE CAPTURE AREA';
     case 'DIRECT':
       return engine.zones.activePeople.length > 1
-        ? 'SOMEONE RAISE ONE ARM'
-        : 'RAISE ONE ARM';
+        ? 'SOMEONE RAISE YOUR HAND OR WAVE'
+        : 'RAISE YOUR HAND OR WAVE';
     case 'POSE_READY':
       return 'GOT IT — HOLD';
     case 'COUNTDOWN':
@@ -105,10 +125,18 @@ function instructionDetail(engine: InteractionEngineSnapshot | null) {
     return `${engine.zones.capturePeople.length} people are in the capture area.`;
   }
   switch (engine.state) {
+    case 'IDLE':
+      return 'Move into view when you are ready.';
+    case 'PERCEIVING':
+      return 'wave if you’re ready';
+    case 'LOCKED':
+      return 'Your pose is ready.';
     case 'PASSERBY':
       return 'Move closer and the installation will respond.';
     case 'ENGAGED':
-      return 'Cross the demo capture line to begin. Step back any time to cancel.';
+      return interactionConfig.zoneBypass.enabled
+        ? 'Stay visible and the action prompt will begin.'
+        : 'Cross the demo capture line to begin. Step back any time to cancel.';
     case 'CAPTURE_ZONE':
       return engine.zones.capturePeople.length
         ? `Confirming ${engine.zones.capturePeople.length} ${
@@ -118,9 +146,13 @@ function instructionDetail(engine: InteractionEngineSnapshot | null) {
     case 'DIRECT':
       return 'One clear movement is enough for the whole group.';
     case 'POSE_READY':
-      return 'AI vision understood the raised arm.';
+      return 'AI vision understood the gesture.';
     case 'COUNTDOWN':
-      return 'Step back before the shutter to cancel.';
+      return effectiveInteractionConfig.countdownSkipValidation
+        ? 'Photo will be taken when the countdown reaches zero.'
+        : interactionConfig.zoneBypass.enabled
+          ? 'Leave the camera view before the shutter to cancel.'
+          : 'Step back before the shutter to cancel.';
     case 'CAPTURE':
       return 'The intended photo has been captured.';
     case 'CREATE':
@@ -136,8 +168,10 @@ export default function BoothPage() {
   const [cameraStatus, setCameraStatus] = useState<CameraStatus>('starting');
   const [engine, setEngine] = useState<InteractionEngineSnapshot | null>(null);
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
+  const [capturedPoseTrace, setCapturedPoseTrace] = useState<PoseTrace[]>([]);
   const [portrait, setPortrait] = useState<PortraitRecord | null>(null);
   const [resultNarrative, setResultNarrative] = useState('');
+  const [gesturePromptIndex, setGesturePromptIndex] = useState(0);
   const [error, setError] = useState('');
   const [wallStatus, setWallStatus] = useState<
     'idle' | 'publishing' | 'published'
@@ -152,17 +186,54 @@ export default function BoothPage() {
     [],
   );
 
-  const state = engine?.state ?? 'PASSERBY';
+  const state = engine?.state ?? (simpleMode.enabled ? 'IDLE' : 'PASSERBY');
   const primary = engine?.primary ?? 'Intelligence';
   const secondary = engine?.secondary ?? 'Precision';
   const mode = engine?.mode ?? 'Single';
-  const instruction = mainInstruction(engine, cameraStatus);
-  const detail = instructionDetail(engine);
+  const defaultInstruction = mainInstruction(engine, cameraStatus);
+  const instruction =
+    !simpleMode.enabled &&
+    state === 'DIRECT' &&
+    interactionConfig.demoMode.enabled &&
+    effectiveInteractionConfig.instructionCycleMs !== null
+      ? ['RAISE YOUR HAND', 'OR JUST WAVE'][gesturePromptIndex % 2]
+      : defaultInstruction;
+  const detail =
+    simpleMode.enabled && state === 'PERCEIVING'
+      ? engine?.simpleFlow?.handRaised
+        ? 'I see your hand'
+        : ['wave if you’re ready', 'or give a thumbs up'][
+            gesturePromptIndex % 2
+          ]
+      : instructionDetail(engine);
   const activeColor = ENERGY_CONFIG[primary].color;
+  const raiseFeedbackProgress = Math.max(
+    0,
+    Math.min(
+      1,
+      ((engine?.gesture?.matchScore ?? 0) -
+        interactionConfig.raiseArmStartScore) /
+        Math.max(
+          0.01,
+          effectiveInteractionConfig.raiseArmScoreThreshold -
+            interactionConfig.raiseArmStartScore,
+        ),
+    ),
+  );
+  const gestureFeedbackProgress = simpleMode.enabled
+    ? engine?.simpleFlow?.ringProgress ?? 0
+    : effectiveInteractionConfig.immediateGestureFeedback
+      ? Math.max(
+          engine?.stability.progress ?? 0,
+          raiseFeedbackProgress,
+          engine?.wave?.active ? Math.max(0.12, engine.wave.progress) : 0,
+        )
+      : engine?.stability.progress ?? 0;
 
   const restart = useCallback(() => {
     generationStartedRef.current = false;
     setCapturedImage(null);
+    setCapturedPoseTrace([]);
     setPortrait(null);
     setResultNarrative('');
     setWallStatus('idle');
@@ -214,8 +285,48 @@ export default function BoothPage() {
   }, [debug]);
 
   useEffect(() => {
+    if (simpleMode.enabled) {
+      if (state !== 'PERCEIVING') {
+        setGesturePromptIndex(0);
+        return undefined;
+      }
+      setGesturePromptIndex(0);
+      const timer = window.setInterval(
+        () => setGesturePromptIndex((index) => (index + 1) % 2),
+        simpleMode.subCopyRotateMs,
+      );
+      return () => window.clearInterval(timer);
+    }
+    if (
+      state !== 'DIRECT' ||
+      effectiveInteractionConfig.instructionCycleMs === null
+    ) {
+      setGesturePromptIndex(0);
+      return undefined;
+    }
+    setGesturePromptIndex(0);
+    const timer = window.setInterval(
+      () => setGesturePromptIndex((index) => (index + 1) % 2),
+      effectiveInteractionConfig.instructionCycleMs,
+    );
+    return () => window.clearInterval(timer);
+  }, [state]);
+
+  useEffect(() => {
+    if (!simpleMode.enabled || state !== 'IDLE') return;
+    generationStartedRef.current = false;
+    setCapturedImage(null);
+    setCapturedPoseTrace([]);
+    setPortrait(null);
+    setResultNarrative('');
+    setWallStatus('idle');
+    setError('');
+  }, [state]);
+
+  useEffect(() => {
     if (
       !('speechSynthesis' in window) ||
+      state === 'IDLE' ||
       state === 'PASSERBY' ||
       state === 'CAPTURE' ||
       state === 'CREATE' ||
@@ -236,6 +347,17 @@ export default function BoothPage() {
   useEffect(() => {
     if (state !== 'CAPTURE') return;
     let cancelled = false;
+    const captureSnapshot = controllerRef.current?.getSnapshot();
+    const captureVideo = videoRef.current;
+    setCapturedPoseTrace(
+      captureSnapshot?.frame && captureVideo
+        ? capturePoseTrace(
+            captureSnapshot.frame.people,
+            captureVideo,
+            captureSnapshot.initiatorId,
+          )
+        : [],
+    );
     const capture = async () => {
       try {
         const camera = cameraRef.current;
@@ -260,7 +382,7 @@ export default function BoothPage() {
 
   useEffect(() => {
     if (
-      state !== 'CREATE' ||
+      (simpleMode.enabled ? state !== 'CAPTURE' : state !== 'CREATE') ||
       !capturedImage ||
       generationStartedRef.current
     ) {
@@ -302,10 +424,13 @@ export default function BoothPage() {
           primary,
           reading,
           narrative.response,
+          capturedPoseTrace,
         );
         if (cancelled) return;
+        const shortCode = await reserveWallCode(result.id);
+        if (cancelled) return;
         setResultNarrative(narrative.response);
-        setPortrait(result);
+        setPortrait({ ...result, shortCode });
         controllerRef.current?.generationComplete();
       } catch (cause) {
         setError(
@@ -320,18 +445,30 @@ export default function BoothPage() {
     return () => {
       cancelled = true;
     };
-  }, [state, capturedImage, mode, primary, secondary]);
+  }, [state, capturedImage, capturedPoseTrace, mode, primary, secondary]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') restart();
+      const target = event.target as HTMLElement | null;
+      if (
+        event.code === 'Space' &&
+        (simpleMode.enabled
+          ? simpleMode.allowManualShutter
+          : effectiveInteractionConfig.manualShutterEnabled) &&
+        target?.tagName !== 'INPUT' &&
+        target?.tagName !== 'TEXTAREA'
+      ) {
+        event.preventDefault();
+        controllerRef.current?.manualShutter();
+      }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [restart]);
 
   useEffect(() => {
-    if (state !== 'RESULT') return undefined;
+    if (state !== 'RESULT' || simpleMode.enabled) return undefined;
     const timer = window.setTimeout(restart, 90_000);
     return () => window.clearTimeout(timer);
   }, [restart, state]);
@@ -370,13 +507,15 @@ export default function BoothPage() {
 
         {state !== 'RESULT' && (
           <>
-            <div className="capture-zone-guide" aria-hidden="true">
-              <span />
-              <b>
-                {`≈${interactionConfig.zones.approximateForwardStepMeters.toFixed(1)}M FORWARD · STEP BACK TO CANCEL`}
-              </b>
-              <span />
-            </div>
+            {!interactionConfig.zoneBypass.enabled && (
+              <div className="capture-zone-guide" aria-hidden="true">
+                <span />
+                <b>
+                  {`≈${interactionConfig.zones.approximateForwardStepMeters.toFixed(1)}M FORWARD · STEP BACK TO CANCEL`}
+                </b>
+                <span />
+              </div>
+            )}
 
             <div className={`mirror-instruction state-${state.toLowerCase()}`}>
               <p>
@@ -400,22 +539,43 @@ export default function BoothPage() {
                 <h1>{instruction}</h1>
               )}
               <small>{detail}</small>
-              {state === 'DIRECT' && (
-                <div className="gesture-progress">
+              {!simpleMode.enabled && state === 'DIRECT' && (
+                <div
+                  className={`gesture-progress ${
+                    gestureFeedbackProgress > 0 ? 'is-detected' : ''
+                  }`}
+                >
                   <i
                     style={{
-                      width: `${Math.round(
-                        (engine?.stability.progress ?? 0) * 100,
-                      )}%`,
+                      width: `${Math.round(gestureFeedbackProgress * 100)}%`,
                     }}
                   />
                 </div>
               )}
+              {simpleMode.enabled &&
+                (state === 'PERCEIVING' || state === 'LOCKED') && (
+                  <div
+                    className={`simple-progress-ring ${
+                      engine?.simpleFlow?.handRaised ? 'is-boosted' : ''
+                    } ${state === 'LOCKED' ? 'is-locked' : ''}`}
+                    style={{
+                      '--simple-progress': `${Math.round(
+                        gestureFeedbackProgress * 360,
+                      )}deg`,
+                    } as React.CSSProperties}
+                    data-testid="simple-progress-ring"
+                    aria-label={`${Math.round(gestureFeedbackProgress * 100)}% ready`}
+                  >
+                    <i />
+                    <span>{Math.round(gestureFeedbackProgress * 100)}</span>
+                  </div>
+                )}
             </div>
           </>
         )}
 
-        {state === 'CREATE' && (
+        {(state === 'CREATE' ||
+          (simpleMode.enabled && state === 'CAPTURE' && capturedImage)) && (
           <div className="create-trace">
             <span>AI VISION READ</span>
             <i />
@@ -427,12 +587,46 @@ export default function BoothPage() {
 
         {state === 'RESULT' && portrait && (
           <div className="v1-result">
-            <div className="v1-portrait">
-              <img
-                src={portrait.imageData}
-                alt="AI-assisted future portrait"
-              />
-              <span>AI-ASSISTED · LOCAL POSE PERCEPTION</span>
+            <div className="v1-portrait-stack">
+              <div className="v1-portrait">
+                <img
+                  src={portrait.imageData}
+                  alt="AI-assisted future portrait"
+                />
+                {debug && portrait.poseTrace?.length ? (
+                  <svg
+                    className="pose-trace-validation"
+                    viewBox="0 0 1 1"
+                    preserveAspectRatio="none"
+                    aria-label="Pose trace alignment validation"
+                  >
+                    {portrait.poseTrace.map((trace, traceIndex) => (
+                      <g key={traceIndex}>
+                        {trace.hullPoints.length >= 3 && (
+                          <polygon
+                            points={trace.hullPoints
+                              .map((point) => `${point.x},${point.y}`)
+                              .join(' ')}
+                          />
+                        )}
+                        {trace.keypoints.map((point) => (
+                          <circle
+                            key={point.name}
+                            cx={point.x}
+                            cy={point.y}
+                            r="0.006"
+                          />
+                        ))}
+                      </g>
+                    ))}
+                  </svg>
+                ) : null}
+                <span>AI-ASSISTED · LOCAL POSE PERCEPTION</span>
+              </div>
+              <div className="result-wall-code">
+                <strong>#{portrait.shortCode}</strong>
+                <span>你的编号 · 到大屏输入它找到自己</span>
+              </div>
             </div>
             <div className="v1-result-copy">
               <p>YOUR FUTURE PORTRAIT</p>
@@ -490,7 +684,11 @@ export default function BoothPage() {
         )}
 
         <footer className="mirror-footer">
-          <span>ENTERING THE CAPTURE AREA STARTS THE PHOTO FLOW</span>
+          <span>
+            {interactionConfig.zoneBypass.enabled
+              ? 'PERSON DETECTION STARTS THE PHOTO FLOW'
+              : 'ENTERING THE CAPTURE AREA STARTS THE PHOTO FLOW'}
+          </span>
           <span>LIVE VIDEO STAYS ON THIS DEVICE</span>
         </footer>
 
@@ -502,6 +700,7 @@ export default function BoothPage() {
           <PerceptionDebugOverlay
             snapshot={engine}
             cameraStatus={cameraStatus}
+            videoRef={videoRef}
           />
         )}
       </section>

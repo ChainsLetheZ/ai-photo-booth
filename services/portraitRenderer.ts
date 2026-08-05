@@ -1,5 +1,11 @@
 import { ENERGY_CONFIG, SECONDARY_COPY } from '../constants';
-import type { BehaviorReading, PortraitRecord, PrimaryEnergy } from '../types';
+import type {
+  BehaviorReading,
+  PortraitRecord,
+  PoseTrace,
+  PrimaryEnergy,
+} from '../types';
+import { getCoverSourceRect } from '../utils/viewportTransform';
 
 function coverImage(
   context: CanvasRenderingContext2D,
@@ -11,15 +17,22 @@ function coverImage(
   width: number,
   height: number,
 ) {
-  const scale = Math.max(width / sourceWidth, height / sourceHeight);
-  const drawWidth = sourceWidth * scale;
-  const drawHeight = sourceHeight * scale;
+  const source = getCoverSourceRect(
+    sourceWidth,
+    sourceHeight,
+    width,
+    height,
+  );
   context.drawImage(
     image,
-    x + (width - drawWidth) / 2,
-    y + (height - drawHeight) / 2,
-    drawWidth,
-    drawHeight,
+    source.sx,
+    source.sy,
+    source.sw,
+    source.sh,
+    x,
+    y,
+    width,
+    height,
   );
 }
 
@@ -63,6 +76,7 @@ export async function renderFuturePortrait(
   primary: PrimaryEnergy,
   reading: BehaviorReading,
   narrativeCopy = SECONDARY_COPY[reading.secondary],
+  poseTrace: PoseTrace[] = [],
 ): Promise<PortraitRecord> {
   const image = new Image();
   image.src = capturedImage;
@@ -70,7 +84,12 @@ export async function renderFuturePortrait(
 
   const canvas = document.createElement('canvas');
   canvas.width = 1200;
-  canvas.height = 1600;
+  const photoHeight = Math.max(
+    1,
+    Math.round(canvas.width * (image.height / Math.max(1, image.width))),
+  );
+  const informationHeight = 490;
+  canvas.height = photoHeight + informationHeight;
   const context = canvas.getContext('2d');
   if (!context) throw new Error('Canvas is unavailable');
 
@@ -78,25 +97,37 @@ export async function renderFuturePortrait(
   context.fillStyle = '#F3F5F6';
   context.fillRect(0, 0, canvas.width, canvas.height);
 
-  context.save();
-  context.translate(canvas.width, 0);
-  context.scale(-1, 1);
-  coverImage(context, image, image.width, image.height, 0, 0, canvas.width, 1110);
-  context.restore();
+  // The camera service already captured the exact object-fit: cover viewport.
+  // Preserve that framing and its unmirrored orientation in the final image.
+  coverImage(
+    context,
+    image,
+    image.width,
+    image.height,
+    0,
+    0,
+    canvas.width,
+    photoHeight,
+  );
 
-  const shade = context.createLinearGradient(0, 250, 0, 1110);
+  const shade = context.createLinearGradient(
+    0,
+    photoHeight * 0.22,
+    0,
+    photoHeight,
+  );
   shade.addColorStop(0, 'rgba(0,0,0,0)');
   shade.addColorStop(0.66, 'rgba(0,0,0,0.04)');
   shade.addColorStop(1, `${config.color}E8`);
   context.fillStyle = shade;
-  context.fillRect(0, 0, canvas.width, 1110);
+  context.fillRect(0, 0, canvas.width, photoHeight);
 
   const glow = context.createRadialGradient(600, 560, 40, 600, 560, 640);
   glow.addColorStop(0, `${config.accent}99`);
   glow.addColorStop(1, `${config.color}00`);
   context.fillStyle = glow;
-  context.fillRect(0, 0, canvas.width, 1110);
-  drawNetwork(context, Date.now() % 97, config.accent, canvas.width, 1110);
+  context.fillRect(0, 0, canvas.width, photoHeight);
+  drawNetwork(context, Date.now() % 97, config.accent, canvas.width, photoHeight);
 
   context.fillStyle = 'rgba(0,0,0,0.66)';
   context.fillRect(54, 54, 428, 58);
@@ -105,28 +136,28 @@ export async function renderFuturePortrait(
   context.fillText('BOSCH SUPPLIER CONFERENCE', 78, 91);
 
   context.font = '700 68px Arial, sans-serif';
-  context.fillText(`${primary.toUpperCase()} ×`, 70, 910);
-  context.fillText(reading.secondary.toUpperCase(), 70, 988);
+  context.fillText(`${primary.toUpperCase()} ×`, 70, photoHeight - 200);
+  context.fillText(reading.secondary.toUpperCase(), 70, photoHeight - 122);
   context.font = '400 26px Arial, sans-serif';
   context.fillText(
     `${reading.mode} · ${reading.peopleCount} signal${reading.peopleCount === 1 ? '' : 's'} observed`,
     74,
-    1042,
+    photoHeight - 60,
   );
 
   context.fillStyle = '#FFFFFF';
-  context.fillRect(0, 1110, canvas.width, 490);
+  context.fillRect(0, photoHeight, canvas.width, informationHeight);
   context.fillStyle = config.color;
-  context.fillRect(0, 1110, 18, 490);
+  context.fillRect(0, photoHeight, 18, informationHeight);
   context.fillStyle = '#101820';
   context.font = '700 32px Arial, sans-serif';
-  context.fillText('YOUR FUTURE SIGNAL', 70, 1192);
+  context.fillText('YOUR FUTURE SIGNAL', 70, photoHeight + 82);
 
   context.font = '700 48px Arial, sans-serif';
   const copy = narrativeCopy;
   const words = copy.split(' ');
   let line = '';
-  let y = 1280;
+  let y = photoHeight + 170;
   words.forEach((word) => {
     const test = `${line}${word} `;
     if (context.measureText(test).width > 1040 && line) {
@@ -141,10 +172,14 @@ export async function renderFuturePortrait(
 
   context.fillStyle = '#66737D';
   context.font = '400 24px Arial, sans-serif';
-  context.fillText('HUMAN INTENTION × OBSERVED BEHAVIOR → CO-CREATED FUTURE', 70, 1514);
+  context.fillText(
+    'HUMAN INTENTION × OBSERVED BEHAVIOR → CO-CREATED FUTURE',
+    70,
+    canvas.height - 86,
+  );
   context.fillStyle = '#101820';
   context.font = '700 30px Arial, sans-serif';
-  context.fillText('AI FUTURE PORTRAITS', 844, 1557);
+  context.fillText('AI FUTURE PORTRAITS', 844, canvas.height - 43);
 
   return {
     id: crypto.randomUUID(),
@@ -155,5 +190,7 @@ export async function renderFuturePortrait(
     mode: reading.mode,
     narrative: copy,
     color: config.color,
+    personCount: reading.peopleCount,
+    poseTrace,
   };
 }

@@ -26,7 +26,52 @@ export interface PortraitRecord {
   mode: GroupMode;
   narrative: string;
   color: string;
+  personCount?: number;
+  poseTrace?: PoseTrace[];
+  shortCode?: string;
 }
+
+export interface PoseTraceKeypoint {
+  name: string;
+  x: number;
+  y: number;
+  score: number;
+}
+
+export interface PoseTracePoint {
+  x: number;
+  y: number;
+}
+
+export interface PoseTrace {
+  keypoints: PoseTraceKeypoint[];
+  hullPoints: PoseTracePoint[];
+  isInitiator: boolean;
+}
+
+export interface WallEntry {
+  id: string;
+  shortCode: string;
+  createdAt: number;
+  photoUrl: string;
+  thumbUrl: string;
+  primaryEnergy: PrimaryEnergy;
+  secondaryDimension: SecondaryDimension;
+  narrativeLine: string;
+  personCount: number;
+  poseTrace: PoseTrace[];
+  poseTraceVersion: 2;
+}
+
+export type WallEntryDraft = Omit<WallEntry, 'shortCode' | 'createdAt'>;
+
+export type WallEntrySubmission = WallEntryDraft & {
+  requestedShortCode?: string;
+};
+
+export type WallSocketMessage =
+  | { type: 'sync'; entries: WallEntry[] }
+  | { type: 'entry_added'; entry: WallEntry };
 
 export type BoothPhase =
   | 'idle'

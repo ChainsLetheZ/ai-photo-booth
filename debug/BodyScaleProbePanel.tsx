@@ -8,7 +8,10 @@ import React, {
 import type { InteractionEngineSnapshot } from '../interaction/InteractionController';
 import type { TrackScaleReading } from '../interaction/PersonTrackStore';
 import { recordRenderTiming } from '../perception/RenderTimingStore';
-import { interactionConfig } from '../config/interactionConfig';
+import {
+  effectiveInteractionConfig,
+  interactionConfig,
+} from '../config/interactionConfig';
 
 const HISTORY_WINDOW_MS = 30_000;
 const STATS_WINDOW_MS = 5_000;
@@ -59,6 +62,12 @@ function downloadCsv(rows: RecordedReading[]) {
     'baseline_frozen',
     'baseline_init_count',
     'zone_proxy',
+    'wave_active',
+    'wave_crossings',
+    'wave_amplitude',
+    'wave_progress',
+    'wave_confirmed',
+    'wave_side',
     'torso',
     'shoulder_width',
     'conf_ls',
@@ -101,6 +110,12 @@ function downloadCsv(rows: RecordedReading[]) {
       blankScale ? null : reading.baselineFrozen,
       reading.baselineInitCount,
       reading.zoneProxy,
+      reading.waveActive,
+      reading.waveCrossings,
+      csvNumber(reading.waveAmplitude),
+      csvNumber(reading.waveProgress),
+      reading.waveConfirmed,
+      reading.waveSide,
       blankScale ? null : csvNumber(reading.torso),
       blankScale ? null : csvNumber(reading.shoulderWidth),
       csvNumber(reading.confLs),
@@ -280,16 +295,17 @@ function drawChart(
   context.lineTo(right, gainY(1));
   context.stroke();
   context.setLineDash([]);
-  [
+  const thresholdLines: Array<[number, string]> = [
     [interactionConfig.zoneThresholds.enterZ2Growth, '#6dff9c'],
     [interactionConfig.zoneThresholds.exitZ2Growth, '#ffd56a'],
-  ].forEach(([threshold, color]) => {
+  ];
+  thresholdLines.forEach(([threshold, color]) => {
     context.strokeStyle = color;
     context.globalAlpha = 0.62;
     context.setLineDash([5, 4]);
     context.beginPath();
-    context.moveTo(left, gainY(Number(threshold)));
-    context.lineTo(right, gainY(Number(threshold)));
+    context.moveTo(left, gainY(threshold));
+    context.lineTo(right, gainY(threshold));
     context.stroke();
   });
   context.globalAlpha = 1;
@@ -479,6 +495,15 @@ export default function BodyScaleProbePanel({ snapshot }: Props) {
                 conf <b>S {display(shoulderConf, 2)} / H {display(hipConf, 2)}</b>
               </span>
               <span>zone <b>{reading.existingZone}</b></span>
+              <span className={reading.waveConfirmed ? 'probe-wave-confirmed' : ''}>
+                WAVE{' '}
+                <b>
+                  crossings {reading.waveCrossings}/
+                  {effectiveInteractionConfig.waveMinCrossings} · amp{' '}
+                  {reading.waveAmplitude.toFixed(2)} · progress{' '}
+                  {Math.round(reading.waveProgress * 100)}%
+                </b>
+              </span>
               <span>foot_y <b>{reading.footYNorm.toFixed(4)}</b></span>
               <span>posture <b>{reading.postureReason}</b></span>
               <span>
@@ -490,6 +515,16 @@ export default function BodyScaleProbePanel({ snapshot }: Props) {
       </div>
 
       <div className="probe-sanity">
+        <span
+          className={`probe-zone-bypass ${
+            interactionConfig.zoneBypass.enabled ? 'is-on' : ''
+          }`}
+        >
+          ZONE BYPASS: {interactionConfig.zoneBypass.enabled ? 'ON' : 'OFF'} ·{' '}
+          forceZone={interactionConfig.zoneBypass.forceZone} · minScale=
+          {effectiveInteractionConfig.minPersonScaleRatio.toFixed(2)} · DEMO MODE:{' '}
+          {interactionConfig.demoMode.enabled ? 'ON' : 'OFF'}
+        </span>
         <strong>
           REJECTED (10s): {sanity?.rejectedCount ?? 0}
           {rejectSummary ? ` · ${rejectSummary}` : ''}

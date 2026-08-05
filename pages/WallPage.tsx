@@ -1,101 +1,195 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import BrandBar from '../components/BrandBar';
-import { ENERGY_CONFIG, EVENT } from '../constants';
-import { listPortraits, subscribeToPortraits } from '../services/portraitStore';
-import type { PortraitRecord } from '../types';
+import { wallConfig } from '../config/wallConfig';
+import {
+  listWallEntries,
+  subscribeToWallEntries,
+} from '../services/portraitStore';
+import type { WallEntry } from '../types';
 
-function upsert(records: PortraitRecord[], record: PortraitRecord) {
-  return [...records.filter((item) => item.id !== record.id), record].slice(-48);
+function upsert(records: WallEntry[], entry: WallEntry) {
+  return [...records.filter((item) => item.id !== entry.id), entry]
+    .sort((left, right) => left.createdAt - right.createdAt)
+    .slice(-wallConfig.capacity);
+}
+
+const { columns, rows, cellWidthPx, cellHeightPx, cellGapPx } =
+  wallConfig.layout;
+const columnPitch = cellWidthPx * 0.75 + cellGapPx;
+const columnOffset = (cellHeightPx + cellGapPx) / 2;
+const layoutWidth = (columns - 1) * columnPitch + cellWidthPx;
+const layoutHeight =
+  rows * (cellHeightPx + cellGapPx) - cellGapPx + columnOffset;
+
+function chooseStandbySlots() {
+  const count =
+    wallConfig.layout.standbyGlowMinSlots +
+    Math.floor(
+      Math.random() *
+        (wallConfig.layout.standbyGlowMaxSlots -
+          wallConfig.layout.standbyGlowMinSlots +
+          1),
+    );
+  const selected = new Set<number>();
+  while (selected.size < count) {
+    selected.add(Math.floor(Math.random() * wallConfig.capacity));
+  }
+  return selected;
+}
+
+function entryMotion(id: string) {
+  let hash = 2166136261;
+  for (let index = 0; index < id.length; index += 1) {
+    hash ^= id.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  const normalized = (hash >>> 0) / 0xffffffff;
+  const period =
+    wallConfig.breathing.periodMsMin +
+    normalized *
+      (wallConfig.breathing.periodMsMax - wallConfig.breathing.periodMsMin);
+  return {
+    period,
+    delay: -normalized * period,
+  };
 }
 
 export default function WallPage() {
-  const [records, setRecords] = useState<PortraitRecord[]>([]);
+  const [records, setRecords] = useState<WallEntry[]>([]);
   const [connected, setConnected] = useState(false);
+  const [layoutScale, setLayoutScale] = useState(1);
+  const [standbySlots, setStandbySlots] = useState<Set<number>>(
+    chooseStandbySlots,
+  );
+  const stageRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
-    listPortraits().then((items) => {
-      setRecords(items);
-      setConnected(true);
-    });
-    return subscribeToPortraits((record) => {
-      setConnected(true);
-      setRecords((current) => upsert(current, record));
-    });
+    listWallEntries().then(setRecords);
+    return subscribeToWallEntries(
+      (entry) => setRecords((current) => upsert(current, entry)),
+      setRecords,
+      setConnected,
+    );
   }, []);
 
-  const tokens = useMemo(() => records.slice(-36), [records]);
-  const latest = records.at(-1);
+  useEffect(() => {
+    const timer = window.setInterval(
+      () => setStandbySlots(chooseStandbySlots()),
+      wallConfig.layout.standbyGlowPeriodMs,
+    );
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    const stage = stageRef.current;
+    if (!stage) return undefined;
+    const updateScale = () => {
+      const bounds = stage.getBoundingClientRect();
+      setLayoutScale(
+        Math.min(1, (bounds.width - 40) / layoutWidth, (bounds.height - 40) / layoutHeight),
+      );
+    };
+    updateScale();
+    const observer = new ResizeObserver(updateScale);
+    observer.observe(stage);
+    return () => observer.disconnect();
+  }, []);
+
+  const slots = useMemo(
+    () =>
+      Array.from({ length: wallConfig.capacity }, (_, index) => {
+        const row = Math.floor(index / columns);
+        const column = index % columns;
+        return {
+          index,
+          shortCode: String(wallConfig.firstShortCode + index).padStart(3, '0'),
+          x: column * columnPitch,
+          y: row * (cellHeightPx + cellGapPx) +
+            (column % 2) * columnOffset,
+        };
+      }),
+    [],
+  );
+  const entriesByCode = useMemo(
+    () => new Map(records.map((entry) => [entry.shortCode, entry])),
+    [records],
+  );
 
   return (
     <main className="wall-shell">
       <BrandBar wall />
-      <section className="collective-stage">
-        <div className="wall-grid" />
-        <div className="collective-aura aura-one" />
-        <div className="collective-aura aura-two" />
-        <div className="collective-core">
-          <p>COLLECTIVE SIGNAL · LIVE</p>
-          <h1>{EVENT.wallTitle}</h1>
-          <div className="bosch-word">BOSCH</div>
-          <span><strong>{records.length.toString().padStart(3, '0')}</strong> FUTURE SIGNALS CONNECTED</span>
-        </div>
+      <section className="collective-stage wall-layout-review" ref={stageRef}>
+        <header className="wall-stage-label">
+          <span>COLLECTIVE WALL · LAYOUT REVIEW</span>
+          <strong>200 PLACES · #101—#300</strong>
+        </header>
 
-        <div className="portrait-field">
-          {tokens.map((record, index) => {
-            const ring = index % 3;
-            const angle = (index * 137.5 + ring * 24) * (Math.PI / 180);
-            const radius = 25 + ring * 15 + (index % 5) * 2.2;
-            const x = 50 + Math.cos(angle) * radius;
-            const y = 50 + Math.sin(angle) * radius * 0.64;
-            const size = index === tokens.length - 1 ? 96 : 46 + (index % 4) * 9;
+        <div
+          className="hex-wall-layout"
+          aria-label="200-place Collective Wall grid"
+          style={
+            {
+              width: `${layoutWidth}px`,
+              height: `${layoutHeight}px`,
+              '--wall-layout-scale': layoutScale,
+              '--wall-placeholder-opacity': wallConfig.layout.placeholderOpacity,
+            } as React.CSSProperties
+          }
+        >
+          {slots.map((slot) => {
+            const entry = entriesByCode.get(slot.shortCode);
+            const motion = entry ? entryMotion(entry.id) : null;
             return (
-              <figure
-                key={record.id}
-                className={`portrait-token ${index === tokens.length - 1 ? 'is-latest' : ''}`}
+              <div
+                className={`hex-wall-slot ${entry ? 'is-filled' : 'is-empty'} ${
+                  !entry && standbySlots.has(slot.index)
+                    ? 'is-standby-glow'
+                    : ''
+                }`}
+                key={slot.shortCode}
+                aria-label={
+                  entry
+                    ? `Wall portrait ${slot.shortCode}`
+                    : `Empty wall place ${slot.shortCode}`
+                }
                 style={
                   {
-                    left: `${x}%`,
-                    top: `${y}%`,
-                    width: `${size}px`,
-                    height: `${size}px`,
-                    '--token-color': record.color,
-                    '--token-delay': `${(index % 8) * -0.6}s`,
+                    left: `${slot.x}px`,
+                    top: `${slot.y}px`,
+                    width: `${cellWidthPx}px`,
+                    height: `${cellHeightPx}px`,
+                    '--wall-standby-opacity':
+                      wallConfig.layout.standbyGlowOpacity,
+                    '--wall-standby-period': `${wallConfig.layout.standbyGlowPeriodMs}ms`,
+                    '--wall-breath-amplitude': `${wallConfig.breathing.amplitudePx}px`,
+                    '--wall-breath-scale': wallConfig.breathing.scaleAmplitude,
+                    '--wall-breath-period': motion
+                      ? `${motion.period.toFixed(0)}ms`
+                      : undefined,
+                    '--wall-breath-delay': motion
+                      ? `${motion.delay.toFixed(0)}ms`
+                      : undefined,
                   } as React.CSSProperties
                 }
               >
-                <img src={record.imageData} alt="" />
-                <i />
-              </figure>
+                {entry && (
+                  <img
+                    className="hex-wall-photo"
+                    src={entry.thumbUrl}
+                    alt={`Collective portrait ${entry.shortCode}`}
+                  />
+                )}
+              </div>
             );
           })}
         </div>
 
-        {records.length === 0 && (
-          <div className="empty-signal">
-            <div className="empty-pulse" />
-            <span>Waiting for the first future signal</span>
-          </div>
-        )}
-
-        {latest && (
-          <aside className="latest-card" key={latest.id}>
-            <img src={latest.imageData} alt="Latest future portrait" />
-            <div>
-              <span>NEW SIGNAL JOINED</span>
-              <strong>{latest.primary} × {latest.secondary}</strong>
-              <p>{latest.narrative}</p>
-            </div>
-          </aside>
-        )}
-
-        <div className="energy-legend">
-          {(Object.keys(ENERGY_CONFIG) as Array<keyof typeof ENERGY_CONFIG>).map((energy) => (
-            <span key={energy}><i style={{ background: ENERGY_CONFIG[energy].color }} />{energy}</span>
-          ))}
-        </div>
-        <div className="connection-state">
-          <i className={connected ? 'status-dot' : 'status-dot muted'} />
-          {connected ? 'BOOTH CONNECTED' : 'CONNECTING'}
+        <div className="wall-layout-status">
+          <span>
+            <i className={connected ? 'status-dot' : 'status-dot muted'} />
+            {connected ? 'LIVE LINK' : 'RECONNECTING'}
+          </span>
+          <span>{records.length.toString().padStart(3, '0')} / 200 STORED</span>
         </div>
       </section>
     </main>

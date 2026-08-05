@@ -26,6 +26,8 @@ export type SanityRejectReason =
 export interface SanityResult {
   pass: boolean;
   rejectReason?: SanityRejectReason;
+  /** The measured numbers behind the rejection. Diagnostics only. */
+  rejectDetail?: string;
 }
 
 const CORE_NAMES = [
@@ -98,16 +100,28 @@ export function poseSanityFilter(
   const width = Math.max(1, frameWidth);
   const height = Math.max(1, frameHeight);
   const core = CORE_NAMES.map((name) => person.keypoints[name]);
-  if (
-    config.requireCoreKeypoints &&
-    core.some(
-      (point) =>
-        !point ||
-        (keypointConfidence(point) ?? Number.NEGATIVE_INFINITY) <
-          minKeypointConfidence,
-    )
-  ) {
-    return { pass: false, rejectReason: 'missing_core' };
+  if (config.requireCoreKeypoints) {
+    let weakestName = '';
+    let weakestConfidence = Number.POSITIVE_INFINITY;
+    CORE_NAMES.forEach((name, index) => {
+      const point = core[index];
+      const confidence = point
+        ? keypointConfidence(point) ?? Number.NEGATIVE_INFINITY
+        : Number.NEGATIVE_INFINITY;
+      if (confidence < weakestConfidence) {
+        weakestConfidence = confidence;
+        weakestName = name;
+      }
+    });
+    if (weakestConfidence < minKeypointConfidence) {
+      return {
+        pass: false,
+        rejectReason: 'missing_core',
+        rejectDetail: Number.isFinite(weakestConfidence)
+          ? `${weakestName} ${weakestConfidence.toFixed(2)} < ${minKeypointConfidence.toFixed(2)}`
+          : `${weakestName} absent`,
+      };
+    }
   }
 
   const validKeypoints = Object.values(person.keypoints).filter(
@@ -117,10 +131,18 @@ export function poseSanityFilter(
         minKeypointConfidence,
   ).length;
   if (validKeypoints < config.minValidKeypoints) {
-    return { pass: false, rejectReason: 'few_keypoints' };
+    return {
+      pass: false,
+      rejectReason: 'few_keypoints',
+      rejectDetail: `${validKeypoints}/${config.minValidKeypoints} keypoints ≥ ${minKeypointConfidence.toFixed(2)}`,
+    };
   }
   if (!boundsCenterInRoi(person, roi)) {
-    return { pass: false, rejectReason: 'out_of_roi' };
+    return {
+      pass: false,
+      rejectReason: 'out_of_roi',
+      rejectDetail: `center ${((person.bounds.xMin + person.bounds.xMax) / 2).toFixed(2)},${((person.bounds.yMin + person.bounds.yMax) / 2).toFixed(2)} outside ${roi.xMin}–${roi.xMax} x ${roi.yMin}–${roi.yMax}`,
+    };
   }
 
   const [leftShoulder, rightShoulder, leftHip, rightHip] = core as [
@@ -136,18 +158,29 @@ export function poseSanityFilter(
     width,
     height,
   );
+  const sizeDetail =
+    `shoulder ${shoulderWidth.toFixed(0)}px (min ${(config.minShoulderWidthRatio * width).toFixed(0)})` +
+    ` · torso ${torso.toFixed(0)}px (min ${(config.minTorsoRatio * height).toFixed(0)})`;
   if (
     shoulderWidth / width < config.minShoulderWidthRatio ||
     torso / height < config.minTorsoRatio
   ) {
-    return { pass: false, rejectReason: 'too_small' };
+    return { pass: false, rejectReason: 'too_small', rejectDetail: sizeDetail };
   }
   if (torso / height > config.maxTorsoRatio) {
-    return { pass: false, rejectReason: 'too_large' };
+    return {
+      pass: false,
+      rejectReason: 'too_large',
+      rejectDetail: `torso ${torso.toFixed(0)}px (max ${(config.maxTorsoRatio * height).toFixed(0)})`,
+    };
   }
   const aspect = shoulderWidth / Math.max(torso, Number.EPSILON);
   if (aspect < config.minAspect || aspect > config.maxAspect) {
-    return { pass: false, rejectReason: 'bad_aspect' };
+    return {
+      pass: false,
+      rejectReason: 'bad_aspect',
+      rejectDetail: `aspect ${aspect.toFixed(2)} outside ${config.minAspect}–${config.maxAspect} · ${sizeDetail}`,
+    };
   }
   return { pass: true };
 }

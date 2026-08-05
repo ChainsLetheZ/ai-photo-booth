@@ -1,4 +1,7 @@
-import { interactionConfig } from '../config/interactionConfig';
+import {
+  defaultInFrameRequiredKeypoints,
+  interactionConfig,
+} from '../config/interactionConfig';
 import type {
   BodyJoint,
   PerceptionFrame,
@@ -7,14 +10,6 @@ import type {
 import { analyzeGroup } from './GroupAnalyzer';
 import { MovementTracker } from './MovementTracker';
 import type { BehaviorFeatures } from './types';
-
-const REQUIRED_IN_FRAME_JOINTS: BodyJoint[] = [
-  'nose',
-  'leftShoulder',
-  'rightShoulder',
-  'leftHip',
-  'rightHip',
-];
 
 function visible(landmark?: {
   visibility?: number;
@@ -75,24 +70,42 @@ function isArmsOpen(person: PersonObservation) {
   );
 }
 
-function subjectInFrame(person: PersonObservation) {
+export interface SubjectInFrameResult {
+  pass: boolean;
+  reason: string | null;
+}
+
+export function subjectInFrameResult(
+  person: PersonObservation,
+  requiredKeypoints: readonly BodyJoint[] = defaultInFrameRequiredKeypoints,
+): SubjectInFrameResult {
   const margin = interactionConfig.inFrameMargin;
-  return REQUIRED_IN_FRAME_JOINTS.every((joint) => {
+  for (const joint of requiredKeypoints) {
     const landmark = person.keypoints[joint];
-    return (
-      landmark &&
-      visible(landmark) &&
-      landmark.x >= margin &&
-      landmark.x <= 1 - margin &&
-      landmark.y >= margin &&
-      landmark.y <= 1 - margin
-    );
-  });
+    if (!landmark) return { pass: false, reason: `${joint} missing` };
+    if (!visible(landmark)) {
+      return { pass: false, reason: `${joint} low confidence` };
+    }
+    if (
+      landmark.x < margin ||
+      landmark.x > 1 - margin ||
+      landmark.y < margin ||
+      landmark.y > 1 - margin
+    ) {
+      return { pass: false, reason: `${joint} out of frame` };
+    }
+  }
+  return { pass: true, reason: null };
 }
 
 export class BehaviorFeatureExtractor {
   private readonly movementTracker = new MovementTracker();
   private countHistory: Array<{ timestamp: number; count: number }> = [];
+
+  constructor(
+    private readonly inFrameRequiredKeypoints: readonly BodyJoint[] =
+      defaultInFrameRequiredKeypoints,
+  ) {}
 
   extract(frame: PerceptionFrame): BehaviorFeatures {
     const personCount = frame.people.length;
@@ -121,7 +134,11 @@ export class BehaviorFeatureExtractor {
       stability: movement.stability,
       poseReady: false,
       allSubjectsInFrame:
-        personCount > 0 && frame.people.every(subjectInFrame),
+        personCount > 0 &&
+        frame.people.every(
+          (person) =>
+            subjectInFrameResult(person, this.inFrameRequiredKeypoints).pass,
+        ),
       detectionStable,
     };
   }

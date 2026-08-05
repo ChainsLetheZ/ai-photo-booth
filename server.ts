@@ -8,13 +8,46 @@ import https from "https";
 import { execFile } from "child_process";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
+import { WebSocket, WebSocketServer } from "ws";
 
+import { wallConfig } from "./config/wallConfig";
 import { PRINT_6INCH_SERVER } from "./constants";
 import { ensureHttpsCert } from "./scripts/ensure-https-cert.mjs";
-import type { PortraitRecord } from "./types";
+import { WallRepository } from "./services/wallRepository";
+import type { WallEntrySubmission, WallSocketMessage } from "./types";
 
 const MAX_PORTRAIT_DATA_LENGTH = 4_000_000;
-const MAX_PORTRAIT_SESSION_BYTES = 48_000_000;
+const ALLOWED_PRIMARY = ["Motion", "Intelligence", "Life", "Impact"];
+const ALLOWED_SECONDARY = [
+  "Collaboration",
+  "Precision",
+  "Momentum",
+  "Exploration",
+];
+
+function isWallEntryDraft(value: unknown): value is WallEntrySubmission {
+  if (!value || typeof value !== "object") return false;
+  const draft = value as Partial<WallEntrySubmission>;
+  return (
+    typeof draft.id === "string" &&
+    typeof draft.photoUrl === "string" &&
+    draft.photoUrl.startsWith("data:image/") &&
+    draft.photoUrl.length <= MAX_PORTRAIT_DATA_LENGTH &&
+    typeof draft.thumbUrl === "string" &&
+    draft.thumbUrl.startsWith("data:image/") &&
+    draft.thumbUrl.length <= MAX_PORTRAIT_DATA_LENGTH &&
+    ALLOWED_PRIMARY.includes(draft.primaryEnergy ?? "") &&
+    ALLOWED_SECONDARY.includes(draft.secondaryDimension ?? "") &&
+    typeof draft.narrativeLine === "string" &&
+    Number.isInteger(draft.personCount) &&
+    Number(draft.personCount) >= 1 &&
+    Number(draft.personCount) <= 5 &&
+    Array.isArray(draft.poseTrace) &&
+    draft.poseTraceVersion === 2 &&
+    (draft.requestedShortCode === undefined ||
+      /^\d{3}$/.test(draft.requestedShortCode))
+  );
+}
 
 function lanIpv4s() {
   const out: string[] = [];
@@ -36,8 +69,20 @@ async function startServer() {
   const app = express();
   const port = Number(process.env.PORT || 3000);
   const useHttps = wantsHttps();
-  const portraits: PortraitRecord[] = [];
-  const portraitStreams = new Set<express.Response>();
+  const wallRepository = new WallRepository(
+    path.resolve(
+      process.cwd(),
+      process.env.WALL_DATA_FILE || wallConfig.persistenceFile,
+    ),
+  );
+  let wallWebSocket: WebSocketServer | null = null;
+
+  const broadcastWallMessage = (message: WallSocketMessage) => {
+    const payload = JSON.stringify(message);
+    wallWebSocket?.clients.forEach((client) => {
+      if (client.readyState === WebSocket.OPEN) client.send(payload);
+    });
+  };
 
   app.use(cors());
   app.use(express.json({ limit: "50mb" }));
@@ -114,68 +159,49 @@ async function startServer() {
     }
   });
 
-  // Booth → server → wall. Results live in memory for the event session and
-  // the client keeps a local fallback if the wall runs on the same device.
-  app.get("/api/portraits", (_req, res) => {
-    res.json(portraits);
+  // Persistent booth → server → wall contract. A WebSocket connection receives
+  // a full sync first, then entry_added events for lossless reconnects.
+  app.get("/api/wall/entries", (_req, res) => {
+    res.json(wallRepository.list());
   });
 
-  app.post("/api/portraits", (req, res) => {
-    const record = req.body as Partial<PortraitRecord>;
+  app.post("/api/wall/codes", (req, res) => {
+    const id = req.body?.id;
+    const requestedShortCode = req.body?.requestedShortCode;
     if (
-      typeof record.id !== "string" ||
-      typeof record.imageData !== "string" ||
-      !record.imageData.startsWith("data:image/") ||
-      record.imageData.length > MAX_PORTRAIT_DATA_LENGTH ||
-      typeof record.timestamp !== "number" ||
-      typeof record.primary !== "string" ||
-      typeof record.secondary !== "string"
+      typeof id !== "string" ||
+      (requestedShortCode !== undefined &&
+        (typeof requestedShortCode !== "string" ||
+          !/^\d{3}$/.test(requestedShortCode)))
     ) {
-      return res.status(400).json({ error: "Invalid portrait record" });
+      return res.status(400).json({ error: "Invalid wall code request" });
     }
-
-    const portrait: PortraitRecord = {
-      id: record.id,
-      imageData: record.imageData,
-      timestamp: record.timestamp,
-      primary: record.primary as PortraitRecord["primary"],
-      secondary: record.secondary as PortraitRecord["secondary"],
-      mode:
-        record.mode === "Pair" || record.mode === "Group"
-          ? record.mode
-          : "Single",
-      narrative: typeof record.narrative === "string" ? record.narrative : "",
-      color: typeof record.color === "string" ? record.color : "#00629A",
-    };
-    const existing = portraits.findIndex((item) => item.id === portrait.id);
-    if (existing >= 0) portraits.splice(existing, 1);
-    portraits.push(portrait);
-    while (
-      portraits.length > 48 ||
-      portraits.reduce((total, item) => total + item.imageData.length, 0) >
-        MAX_PORTRAIT_SESSION_BYTES
-    ) {
-      portraits.shift();
+    try {
+      res.json({ shortCode: wallRepository.reserve(id, requestedShortCode) });
+    } catch (error) {
+      if (error instanceof Error && error.message === "WALL_CAPACITY_REACHED") {
+        return res.status(409).json({ error: "Wall capacity reached" });
+      }
+      console.error("Wall code reservation failed:", error);
+      res.status(500).json({ error: "Unable to reserve wall code" });
     }
-
-    const event = `event: portrait\ndata: ${JSON.stringify(portrait)}\n\n`;
-    portraitStreams.forEach((stream) => stream.write(event));
-    res.status(201).json({ success: true, id: portrait.id });
   });
 
-  app.get("/api/portraits/stream", (req, res) => {
-    res.setHeader("Content-Type", "text/event-stream");
-    res.setHeader("Cache-Control", "no-cache, no-transform");
-    res.setHeader("Connection", "keep-alive");
-    res.flushHeaders();
-    res.write("event: connected\ndata: {}\n\n");
-    portraitStreams.add(res);
-
-    const keepAlive = setInterval(() => res.write(": keep-alive\n\n"), 20000);
-    req.on("close", () => {
-      clearInterval(keepAlive);
-      portraitStreams.delete(res);
-    });
+  app.post("/api/wall/entries", (req, res) => {
+    if (!isWallEntryDraft(req.body)) {
+      return res.status(400).json({ error: "Invalid wall entry" });
+    }
+    try {
+      const { entry, added } = wallRepository.add(req.body);
+      if (added) broadcastWallMessage({ type: "entry_added", entry });
+      res.status(added ? 201 : 200).json(entry);
+    } catch (error) {
+      if (error instanceof Error && error.message === "WALL_CAPACITY_REACHED") {
+        return res.status(409).json({ error: "Wall capacity reached" });
+      }
+      console.error("Wall persistence failed:", error);
+      res.status(500).json({ error: "Unable to persist wall entry" });
+    }
   });
 
   // Existing silent-print bridge retained for the event printer.
@@ -239,6 +265,26 @@ async function startServer() {
   } else {
     server = http.createServer(app);
   }
+
+  wallWebSocket = new WebSocketServer({ noServer: true });
+  wallWebSocket.on("connection", (socket) => {
+    socket.on("error", () => undefined);
+    const sync: WallSocketMessage = {
+      type: "sync",
+      entries: wallRepository.list(),
+    };
+    socket.send(JSON.stringify(sync));
+  });
+  server.on("upgrade", (request, socket, head) => {
+    const requestPath = new URL(
+      request.url ?? "/",
+      `${useHttps ? "https" : "http"}://${request.headers.host ?? "localhost"}`,
+    ).pathname;
+    if (requestPath !== wallConfig.websocketPath) return;
+    wallWebSocket?.handleUpgrade(request, socket, head, (client) => {
+      wallWebSocket?.emit("connection", client, request);
+    });
+  });
 
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({

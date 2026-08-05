@@ -11,6 +11,10 @@ export class GestureStabilityTracker {
   private falseSince: number | null = null;
   private lastTrackingAt = 0;
 
+  constructor(
+    private readonly confirmMs: number = interactionConfig.gestureConfirmMs,
+  ) {}
+
   update(
     satisfied: boolean,
     trackingAvailable: boolean,
@@ -39,8 +43,8 @@ export class GestureStabilityTracker {
     const heldFor =
       this.satisfiedSince === null ? 0 : timestamp - this.satisfiedSince;
     return {
-      confirmed: heldFor >= interactionConfig.gestureConfirmMs,
-      progress: Math.min(1, heldFor / interactionConfig.gestureConfirmMs),
+      confirmed: heldFor >= this.confirmMs,
+      progress: Math.min(1, heldFor / this.confirmMs),
       trackingLost,
     };
   }

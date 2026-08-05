@@ -1,9 +1,19 @@
 import React, { useEffect, useRef } from 'react';
 import type { CameraStatus } from '../camera/CameraService';
+import {
+  effectiveInteractionConfig,
+  interactionConfig,
+} from '../config/interactionConfig';
+import { handGesture, simpleModeGesture } from '../config/simpleMode';
 import type { InteractionEngineSnapshot } from '../interaction/InteractionController';
 import type { BodyJoint, FrameTiming } from '../perception/types';
+import { pipelineHealth } from '../perception/PipelineHealthStore';
 import { recordRenderTiming } from '../perception/RenderTimingStore';
+import {
+  createVideoViewportMapping,
+} from '../utils/viewportTransform';
 import BodyScaleProbePanel from './BodyScaleProbePanel';
+import PipelineHealthPanel from './PipelineHealthPanel';
 
 const BODY_CONNECTIONS: Array<[BodyJoint, BodyJoint]> = [
   ['leftShoulder', 'rightShoulder'],
@@ -23,6 +33,7 @@ const BODY_CONNECTIONS: Array<[BodyJoint, BodyJoint]> = [
 interface Props {
   snapshot: InteractionEngineSnapshot;
   cameraStatus: CameraStatus;
+  videoRef: React.RefObject<HTMLVideoElement | null>;
 }
 
 const TIMING_WINDOW_MS = 5_000;
@@ -54,6 +65,7 @@ function score(value: number | undefined) {
 export default function PerceptionDebugOverlay({
   snapshot,
   cameraStatus,
+  videoRef,
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const timingHistoryRef = useRef<Array<{ timestamp: number; timing: FrameTiming }>>([]);
@@ -62,7 +74,8 @@ export default function PerceptionDebugOverlay({
 
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (!canvas) return;
+    const video = videoRef.current;
+    if (!canvas || !video) return;
     const renderStarted = performance.now();
     const bounds = canvas.getBoundingClientRect();
     const ratio = Math.min(
@@ -81,9 +94,20 @@ export default function PerceptionDebugOverlay({
     context.setTransform(ratio, 0, 0, ratio, 0, 0);
     context.clearRect(0, 0, bounds.width, bounds.height);
     const frame = snapshot.frame;
-    if (!frame) return;
+    if (!frame) {
+      pipelineHealth.reportRender({
+        source: 'landmarks',
+        available: 0,
+        drawn: 0,
+      });
+      return;
+    }
+    const transform = createVideoViewportMapping(video, bounds, true);
+    const point = transform.point;
 
+    let peopleDrawn = 0;
     frame.people.forEach((person) => {
+      if (Object.values(person.keypoints).some(Boolean)) peopleDrawn += 1;
       context.strokeStyle =
         snapshot.initiatorId === person.id ? '#FFFFFF' : '#7BD5EF';
       context.fillStyle = context.strokeStyle;
@@ -92,26 +116,76 @@ export default function PerceptionDebugOverlay({
         const first = person.keypoints[start];
         const second = person.keypoints[end];
         if (!first || !second) return;
+        const firstScreen = point(first.x, first.y);
+        const secondScreen = point(second.x, second.y);
         context.beginPath();
-        context.moveTo((1 - first.x) * bounds.width, first.y * bounds.height);
-        context.lineTo((1 - second.x) * bounds.width, second.y * bounds.height);
+        context.moveTo(firstScreen.x, firstScreen.y);
+        context.lineTo(secondScreen.x, secondScreen.y);
         context.stroke();
       });
       Object.values(person.keypoints).forEach((landmark) => {
         if (!landmark) return;
+        const screen = point(landmark.x, landmark.y);
         context.beginPath();
         context.arc(
-          (1 - landmark.x) * bounds.width,
-          landmark.y * bounds.height,
+          screen.x,
+          screen.y,
           2.5,
           0,
           Math.PI * 2,
         );
         context.fill();
       });
+
+      const nose = person.keypoints.nose;
+      if (nose?.coordinateTrace) {
+        const screen = transform.videoPoint(
+          nose.coordinateTrace.video.x,
+          nose.coordinateTrace.video.y,
+        );
+        context.save();
+        context.strokeStyle = '#ff3348';
+        context.fillStyle = '#ff3348';
+        context.lineWidth = 2;
+        context.shadowColor = '#ff3348';
+        context.shadowBlur = 10;
+        context.beginPath();
+        context.moveTo(screen.x - 14, screen.y);
+        context.lineTo(screen.x + 14, screen.y);
+        context.moveTo(screen.x, screen.y - 14);
+        context.lineTo(screen.x, screen.y + 14);
+        context.stroke();
+        context.shadowBlur = 0;
+        context.font = '700 10px "Courier New", monospace';
+        const labelOnLeft = screen.x > bounds.width - 360;
+        context.textAlign = labelOnLeft ? 'right' : 'left';
+        const labelX = labelOnLeft ? screen.x - 18 : screen.x + 18;
+        const { roi, video: videoCoordinate } = nose.coordinateTrace;
+        context.fillText(
+          `NOSE ROI ${roi.x.toFixed(1)},${roi.y.toFixed(1)}`,
+          labelX,
+          screen.y - 18,
+        );
+        context.fillText(
+          `VIDEO ${videoCoordinate.x.toFixed(1)},${videoCoordinate.y.toFixed(1)}`,
+          labelX,
+          screen.y - 6,
+        );
+        context.fillText(
+          `SCREEN ${screen.x.toFixed(1)},${screen.y.toFixed(1)}`,
+          labelX,
+          screen.y + 6,
+        );
+        context.restore();
+      }
+    });
+    pipelineHealth.reportRender({
+      source: 'landmarks',
+      available: frame.people.length,
+      drawn: peopleDrawn,
     });
     recordRenderTiming('landmarks', performance.now() - renderStarted);
-  }, [snapshot.frame, snapshot.initiatorId]);
+  }, [snapshot.frame, snapshot.initiatorId, videoRef]);
 
   const { features, secondaryScores, zones } = snapshot;
   const timing = snapshot.frame?.timing;
@@ -151,6 +225,15 @@ export default function PerceptionDebugOverlay({
       : null;
   return (
     <div className="perception-debug" aria-label="Perception developer overlay">
+      <div
+        className={`debug-blocked-by ${snapshot.blockedBy ? 'is-blocked' : 'is-clear'}`}
+        role="status"
+      >
+        BLOCKED BY:{' '}
+        {snapshot.blockedBy
+          ? `${snapshot.blockedBy.condition} (${snapshot.blockedBy.reason})`
+          : 'NONE'}
+      </div>
       <canvas ref={canvasRef} className="landmark-canvas" />
       {snapshot.bodyScaleProbe && <BodyScaleProbePanel snapshot={snapshot} />}
       <aside className="debug-console">
@@ -172,8 +255,57 @@ export default function PerceptionDebugOverlay({
             {timingMedian?.totalMs.toFixed(1) ?? '—'} ms
           </small>
         </div>
+        <PipelineHealthPanel />
         <dl>
+          <dt>SIMPLE MODE</dt>
+          <dd>{snapshot.simpleFlow ? 'ON' : 'OFF'}</dd>
           <dt>STATE</dt><dd>{snapshot.state}</dd>
+          {snapshot.simpleFlow && (
+            <>
+              <dt>HELD</dt>
+              <dd>{(snapshot.simpleFlow.heldMs / 1000).toFixed(1)}s</dd>
+              <dt>RING</dt>
+              <dd>
+                {snapshot.simpleFlow.ringProgress.toFixed(2)} · base{' '}
+                {snapshot.simpleFlow.baseRatePerSec.toFixed(2)}/s +boost{' '}
+                {snapshot.simpleFlow.boostRatePerSec.toFixed(2)}/s
+              </dd>
+              <dt>HAND RAISED</dt>
+              <dd>
+                {snapshot.simpleFlow.handRaised
+                  ? `yes (${snapshot.simpleFlow.handSide})`
+                  : 'no'}
+              </dd>
+              <dt>GESTURE</dt>
+              <dd>
+                wave {snapshot.wave?.crossings ?? 0}/
+                {simpleModeGesture.waveMinCrossings} amp{' '}
+                {(snapshot.wave?.amplitude ?? 0).toFixed(2)} · raiseArm{' '}
+                {(snapshot.gesture?.matchScore ?? 0).toFixed(2)}
+              </dd>
+              <dt>PERSON LATCH</dt>
+              <dd>
+                {String(snapshot.simpleFlow.personPresent)} (last seen{' '}
+                {snapshot.simpleFlow.lastSeenAgoMs === null
+                  ? '—'
+                  : `${(snapshot.simpleFlow.lastSeenAgoMs / 1000).toFixed(1)}s`}{' '}
+                ago)
+              </dd>
+              <dt>HAND</dt>
+              <dd>
+                {snapshot.handGesture?.status === 'not-installed'
+                  ? 'HAND MODEL NOT INSTALLED'
+                  : snapshot.handGesture?.status === 'error'
+                    ? 'HAND MODEL UNAVAILABLE'
+                    : snapshot.handGesture?.status === 'loading'
+                      ? 'HAND MODEL LOADING'
+                      : snapshot.handGesture
+                        ? `${snapshot.handGesture.category ?? '—'} ${snapshot.handGesture.confidence.toFixed(2)} stable ${snapshot.handGesture.stableCount}/${snapshot.handGesture.stableTarget} · ${snapshot.handGesture.crop ? `crop ${snapshot.handGesture.crop.inputSize}px @ (${snapshot.handGesture.crop.sourceX},${snapshot.handGesture.crop.sourceY})` : snapshot.handGesture.gated ? 'crop pending' : 'gated off'} · INF ${snapshot.handGesture.inferenceMs === null ? '—' : `${snapshot.handGesture.inferenceMs.toFixed(1)}ms`} · runs ${snapshot.handGesture.inferenceCount}/${handGesture.recognizeHz}Hz`
+                        : 'OFF'}
+              </dd>
+            </>
+          )}
+          <dt>DEMO MODE</dt><dd>{interactionConfig.demoMode.enabled ? 'ON' : 'OFF'}</dd>
           <dt>CAMERA</dt><dd>{cameraStatus}</dd>
           <dt>FPS / INFERENCE</dt>
           <dd>{snapshot.frame?.fps ?? 0} / {snapshot.frame?.inferenceMs.toFixed(0) ?? '—'}ms</dd>
@@ -216,6 +348,12 @@ export default function PerceptionDebugOverlay({
           <dt>MOVEMENT</dt><dd>{score(features.movementIntensity)}</dd>
           <dt>INITIATOR</dt><dd>{snapshot.initiatorId ?? '—'}</dd>
           <dt>GESTURE SCORE</dt><dd>{score(snapshot.gesture?.matchScore)}</dd>
+          <dt>WAVE</dt>
+          <dd>
+            {snapshot.wave
+              ? `${snapshot.wave.side ?? '—'} · crossings ${snapshot.wave.crossings}/${effectiveInteractionConfig.waveMinCrossings} · amp ${snapshot.wave.amplitude.toFixed(2)} · ${Math.round(snapshot.wave.progress * 100)}%`
+              : '—'}
+          </dd>
           <dt>HOLD</dt><dd>{Math.round(snapshot.stability.progress * 100)}%</dd>
           <dt>COUNTDOWN</dt><dd>{snapshot.countdown ?? '—'}</dd>
         </dl>

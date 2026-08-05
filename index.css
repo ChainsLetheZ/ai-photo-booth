@@ -767,6 +767,214 @@ button:focus-visible, a:focus-visible { outline: 3px solid #00a8e0; outline-offs
   opacity: 0;
   animation: wall-photo-fade .6s ease-out forwards;
 }
+/* Energy colour is measured from the group's movement, so the wall's overall
+   hue drifts with the crowd rather than with a per-photo guess. */
+.hex-wall-slot.is-filled {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--wall-energy, #7bd5ef) 34%, transparent);
+}
+.hex-wall-slot.is-group {
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--wall-energy, #7bd5ef) 72%, transparent),
+    0 0 18px color-mix(in srgb, var(--wall-energy, #7bd5ef) 40%, transparent);
+}
+
+/* Join: the pose the booth perceived is shown before the photo it took. */
+.wall-pose-figure {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+.wall-pose-figure line {
+  stroke: var(--wall-energy, #7bd5ef);
+  stroke-width: 1.4;
+  stroke-linecap: round;
+  opacity: .9;
+}
+.wall-pose-figure circle {
+  fill: #fff;
+  opacity: .85;
+}
+.wall-pose-hull {
+  fill: color-mix(in srgb, var(--wall-energy, #7bd5ef) 12%, transparent);
+  stroke: color-mix(in srgb, var(--wall-energy, #7bd5ef) 45%, transparent);
+  stroke-width: .006;
+}
+.wall-pose-count {
+  fill: #fff;
+  font-size: .16px;
+  font-weight: 700;
+  text-anchor: middle;
+  opacity: .6;
+}
+.hex-wall-slot.is-joining .wall-pose-figure {
+  animation: wall-pose-in 420ms ease-out both;
+}
+.hex-wall-slot.is-settling .wall-pose-figure {
+  opacity: 0;
+  transition: opacity var(--wall-join-settle, 1500ms) ease;
+}
+.hex-wall-slot.is-perception .hex-wall-photo {
+  opacity: 0;
+  animation: none;
+}
+.hex-wall-slot.is-settling .hex-wall-photo {
+  animation: wall-photo-fade var(--wall-join-settle, 1500ms) ease-out forwards;
+}
+
+@keyframes wall-pose-in {
+  from { opacity: 0; transform: scale(.86); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+/* The wall at rest: a diagonal river of large photos. */
+.wall-river {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--river-fade, 900ms) ease;
+}
+.wall-river.is-active {
+  opacity: 1;
+}
+.wall-river-pan {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 200%;
+  height: 200%;
+  will-change: transform;
+}
+/* Paused while the register is out, so returning to the river does not jump. */
+.wall-river-pan.is-panning {
+  animation: wall-river-pan var(--river-pan, 150s) linear infinite;
+}
+.wall-river-panel {
+  position: absolute;
+  width: 50%;
+  height: 50%;
+}
+.wall-river-tile {
+  position: absolute;
+  padding: calc(var(--river-gap, 10px) / 2);
+}
+.wall-river-tile img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center 30%;
+  border-radius: 3px;
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--wall-energy, #7bd5ef) 30%, transparent),
+    0 18px 50px rgba(0,0,0,.5);
+}
+
+@keyframes wall-river-pan {
+  from { transform: translate3d(0, 0, 0); }
+  to { transform: translate3d(-50%, -50%, 0); }
+}
+
+/* Idle drift. Empty places belong to the register, so they leave with it. */
+.hex-wall-slot.is-hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+.hex-wall-slot.is-adrift {
+  animation: wall-drift var(--wall-drift-period, 12000ms) ease-in-out infinite
+    var(--wall-drift-delay, 0ms);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--wall-energy, #7bd5ef) 65%, transparent),
+    0 0 22px color-mix(in srgb, var(--wall-energy, #7bd5ef) 32%, transparent);
+}
+.hex-wall-slot.is-arriving {
+  z-index: 3;
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--wall-energy, #7bd5ef) 90%, transparent),
+    0 0 40px color-mix(in srgb, var(--wall-energy, #7bd5ef) 65%, transparent);
+}
+
+@keyframes wall-drift {
+  0%, 100% {
+    transform: translate3d(0, calc(var(--wall-drift-amplitude, 26px) * -.4), 0);
+  }
+  33% {
+    transform: translate3d(var(--wall-drift-amplitude, 26px), calc(var(--wall-drift-amplitude, 26px) * .55), 0);
+  }
+  66% {
+    transform: translate3d(calc(var(--wall-drift-amplitude, 26px) * -.8), calc(var(--wall-drift-amplitude, 26px) * .25), 0);
+  }
+}
+
+/* Assemble — operator-triggered only. */
+.hex-wall-slot.is-flying {
+  animation: none;
+  clip-path: none;
+  border-radius: 2px;
+  box-shadow: 0 0 8px color-mix(in srgb, var(--wall-energy, #7bd5ef) 55%, transparent);
+}
+.hex-wall-slot.is-dimmed {
+  opacity: 0;
+}
+.wall-back-button {
+  margin-right: 16px;
+  padding: 6px 13px;
+  border: 1px solid rgba(255,255,255,.24);
+  border-radius: 999px;
+  background: rgba(7,18,25,.72);
+  color: rgba(255,255,255,.78);
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 1.6px;
+  cursor: pointer;
+}
+.wall-back-button:hover {
+  border-color: rgba(123,213,239,.5);
+  color: #bdeafd;
+}
+.wall-assemble-button {
+  padding: 7px 14px;
+  border: 1px solid rgba(123,213,239,.45);
+  border-radius: 999px;
+  background: rgba(7,18,25,.8);
+  color: #bdeafd;
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 1.6px;
+  cursor: pointer;
+}
+.wall-assemble-button:disabled {
+  opacity: .35;
+  cursor: default;
+}
+.wall-assemble-caption {
+  position: absolute;
+  z-index: 6;
+  bottom: 9%;
+  left: 0;
+  right: 0;
+  text-align: center;
+  pointer-events: none;
+  animation: wall-photo-fade 1.2s ease-out 1.4s both;
+}
+.wall-assemble-caption p {
+  margin: 0;
+  color: rgba(255,255,255,.92);
+  font-size: clamp(20px, 2.4vw, 40px);
+  font-weight: 700;
+  letter-spacing: .1em;
+}
+.wall-assemble-caption span {
+  color: rgba(123,213,239,.6);
+  font-size: 10px;
+  letter-spacing: .3em;
+  text-transform: uppercase;
+}
+
 .wall-layout-status {
   position: absolute;
   z-index: 5;
@@ -853,13 +1061,120 @@ button:focus-visible, a:focus-visible { outline: 3px solid #00a8e0; outline-offs
   .hex-wall-slot.is-filled { animation:none !important; transform:none !important; }
 }
 
-/* V1 full-screen AI mirror */
+/* V1 AI mirror inside the KV portal.
+   The camera area is driven by the four variables below — retune the frame by
+   changing them, nothing else depends on the numbers. The KV reference frame
+   is 44% wide; this runs larger because the camera is the interface.
+   To drop in the real KV artwork instead of the CSS approximation:
+     .booth-v1 { --kv-image: url('/kv/kv.jpg'); --kv-art-opacity: 0; } */
 .booth-v1 {
+  --kv-portal-width: 52%;
+  --kv-portal-height: 84%;
+  --kv-portal-x: 69%;
+  --kv-portal-y: 50%;
+  --kv-portal-radius: clamp(28px, 3vw, 54px);
   width: 100%;
   height: 100%;
   min-height: 100%;
   overflow: hidden;
-  background: #061118;
+  background: #04070a;
+}
+
+.kv-backdrop {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  background: #04070a;
+}
+
+.kv-backdrop::before,
+.kv-backdrop::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+}
+
+.kv-backdrop::before {
+  background-image: var(--kv-image, none);
+  background-position: center;
+  background-size: cover;
+}
+
+.kv-backdrop::after {
+  opacity: var(--kv-art-opacity, 1);
+  background:
+    radial-gradient(130% 62% at 4% 82%, rgba(216,158,64,.30), transparent 58%),
+    radial-gradient(96% 48% at 30% 54%, rgba(0,168,224,.20), transparent 64%),
+    radial-gradient(78% 74% at 70% 44%, rgba(0,98,154,.26), transparent 68%),
+    linear-gradient(197deg, transparent 40%, rgba(216,158,64,.15) 50%, transparent 60%),
+    linear-gradient(185deg, transparent 55%, rgba(0,168,224,.13) 63%, transparent 71%);
+}
+
+.kv-logo {
+  position: absolute;
+  z-index: 2;
+  top: clamp(22px, 4vh, 54px);
+  left: clamp(24px, 3.4vw, 62px);
+  color: #fff;
+  font-size: clamp(22px, 2.2vw, 40px);
+  font-weight: 700;
+  letter-spacing: -1px;
+}
+
+.kv-headline {
+  position: absolute;
+  z-index: 2;
+  top: 50%;
+  left: clamp(24px, 3.4vw, 62px);
+  width: min(36%, 620px);
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+.kv-headline h2 {
+  margin: 0;
+  color: #f2dcae;
+  font-size: clamp(24px, 3.2vw, 58px);
+  font-weight: 500;
+  line-height: 1.16;
+  letter-spacing: .1em;
+}
+
+.kv-headline p {
+  margin: 10px 0 0;
+  color: rgba(255,255,255,.7);
+  font-size: clamp(11px, 1.15vw, 21px);
+  letter-spacing: .07em;
+}
+
+.kv-portal {
+  position: absolute;
+  z-index: 4;
+  top: var(--kv-portal-y);
+  left: var(--kv-portal-x);
+  width: var(--kv-portal-width);
+  height: var(--kv-portal-height);
+  overflow: hidden;
+  transform: translate(-50%, -50%);
+  border-radius: var(--kv-portal-radius);
+  isolation: isolate;
+  background: #07141b;
+  box-shadow:
+    0 0 0 3px rgba(255,255,255,.88),
+    0 0 0 11px rgba(0,116,196,.5),
+    0 0 44px 10px rgba(0,152,226,.42),
+    0 0 130px 34px rgba(0,108,188,.24),
+    0 34px 90px rgba(0,0,0,.6);
+}
+
+@media (max-width: 900px) {
+  .booth-v1 {
+    --kv-portal-width: 96%;
+    --kv-portal-height: 94%;
+    --kv-portal-x: 50%;
+  }
+  .kv-logo,
+  .kv-headline { display: none; }
 }
 
 .ai-mirror {

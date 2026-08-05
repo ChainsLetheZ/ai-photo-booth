@@ -3,6 +3,7 @@ import { simpleMode } from '../config/simpleMode';
 import { InteractionStateMachine } from '../interaction/InteractionStateMachine';
 import {
   SimpleFlowController,
+  type SimpleFlowConfig,
   type SimpleFlowInput,
 } from '../interaction/SimpleFlowController';
 
@@ -19,9 +20,13 @@ const raised: SimpleFlowInput = {
   handSide: 'left',
 };
 
-function flow() {
-  return new SimpleFlowController(simpleMode);
+function flow(overrides: Partial<SimpleFlowConfig> = {}) {
+  return new SimpleFlowController({ ...simpleMode, ...overrides });
 }
+
+// The unattended installation advances on its own; gesture evaluation runs
+// with that turned off. Both paths are covered whichever one is shipped.
+const autoFlow = () => flow({ autoReadyEnabled: true });
 
 {
   const subject = flow();
@@ -29,7 +34,7 @@ function flow() {
 }
 
 {
-  const subject = flow();
+  const subject = autoFlow();
   subject.update(0, person);
   for (let frame = 1; frame <= 100; frame += 1) {
     const snapshot = subject.update(frame * 50, none);
@@ -40,19 +45,45 @@ function flow() {
 }
 
 {
-  const subject = flow();
+  const subject = autoFlow();
   subject.update(0, person);
   assert.equal(subject.update(4999, none).state, 'PERCEIVING');
   assert.equal(subject.update(5000, none).state, 'LOCKED');
 }
 
 {
-  const subject = flow();
+  const subject = flow({ autoReadyEnabled: false });
+  subject.update(0, person);
+  for (let frame = 1; frame <= 600; frame += 1) {
+    subject.update(frame * 50, person);
+  }
+  const waited = subject.getSnapshot(30_000);
+  assert.equal(waited.baseRatePerSec, 0);
+  assert.equal(waited.ringProgress, 0);
+  assert.equal(
+    waited.state,
+    'PERCEIVING',
+    'Standing in view must not reach a capture while auto ready is off',
+  );
+}
+
+{
+  const subject = autoFlow();
   subject.update(0, raised);
   const accelerated = subject.update(1250, raised);
   assert.equal(accelerated.baseRatePerSec, 0.2);
   assert.equal(accelerated.boostRatePerSec, 0.6);
   assert.equal(accelerated.state, 'LOCKED');
+}
+
+{
+  const subject = flow({ autoReadyEnabled: false });
+  subject.update(0, raised);
+  assert.equal(
+    subject.update(1667, raised).state,
+    'LOCKED',
+    'A raised arm must still lock without the base rate',
+  );
 }
 
 {

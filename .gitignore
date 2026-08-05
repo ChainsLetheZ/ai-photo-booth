@@ -28,3 +28,6 @@ certs/
 *.njsproj
 *.sln
 *.sw?
+
+# Claude Code local permission grants (machine specific)
+.claude/settings.local.json

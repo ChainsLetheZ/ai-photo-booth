@@ -158,7 +158,7 @@ function instructionDetail(engine: InteractionEngineSnapshot | null) {
     case 'CREATE':
       return 'AI vision interpreted your movement; the portrait is assembled locally.';
     case 'RESULT':
-      return 'Saving and adding to the collective wall are separate choices.';
+      return 'Your portrait is on the collective wall. Save a copy if you want one.';
     case 'ERROR':
       return 'No photo was taken. Reset when ready.';
   }
@@ -173,9 +173,6 @@ export default function BoothPage() {
   const [resultNarrative, setResultNarrative] = useState('');
   const [gesturePromptIndex, setGesturePromptIndex] = useState(0);
   const [error, setError] = useState('');
-  const [wallStatus, setWallStatus] = useState<
-    'idle' | 'publishing' | 'published'
-  >('idle');
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const cameraRef = useRef<BrowserCameraService | null>(null);
@@ -236,7 +233,6 @@ export default function BoothPage() {
     setCapturedPoseTrace([]);
     setPortrait(null);
     setResultNarrative('');
-    setWallStatus('idle');
     setError('');
     controllerRef.current?.reset();
   }, []);
@@ -319,7 +315,6 @@ export default function BoothPage() {
     setCapturedPoseTrace([]);
     setPortrait(null);
     setResultNarrative('');
-    setWallStatus('idle');
     setError('');
   }, [state]);
 
@@ -429,9 +424,15 @@ export default function BoothPage() {
         if (cancelled) return;
         const shortCode = await reserveWallCode(result.id);
         if (cancelled) return;
+        const published = { ...result, shortCode };
         setResultNarrative(narrative.response);
-        setPortrait({ ...result, shortCode });
+        setPortrait(published);
         controllerRef.current?.generationComplete();
+        // Taking the photo is the consent — every capture goes to the wall,
+        // with no second confirmation and no way to hold one back.
+        publishPortrait(published).catch((cause) => {
+          console.error('Wall publish failed', cause);
+        });
       } catch (cause) {
         setError(
           cause instanceof Error
@@ -473,106 +474,118 @@ export default function BoothPage() {
     return () => window.clearTimeout(timer);
   }, [restart, state]);
 
-  const addToWall = async () => {
-    if (!portrait || wallStatus !== 'idle') return;
-    setWallStatus('publishing');
-    await publishPortrait(portrait);
-    setWallStatus('published');
-  };
-
   return (
     <main
       className="booth-v1"
       style={{ '--active': activeColor } as React.CSSProperties}
     >
       <section className="ai-mirror">
-        <video ref={videoRef} muted playsInline className="camera-feed" />
-        {engine && (
-          <PerceptionHaloLayer snapshot={engine} videoRef={videoRef} />
-        )}
-        <div className="mirror-grade" />
-        <div className="mirror-noise" />
+        <div className="kv-backdrop" aria-hidden="true" />
+        <div className="kv-logo" aria-hidden="true">
+          BOSCH
+        </div>
+        <div className="kv-headline" aria-hidden="true">
+          <h2>竞速智联　共塑致远</h2>
+          <p>Accelerate Innovation　Go Beyond Together</p>
+        </div>
 
-        <header className="mirror-header">
-          <div className="mirror-brand">
-            <strong>BOSCH</strong>
-            <span>{EVENT.title}</span>
-          </div>
-          <div className="ai-presence">
-            <i />
-            LOCAL AI PERCEPTION
-            <span>ON DEVICE</span>
-          </div>
-        </header>
+        <div className="kv-portal">
+          <video ref={videoRef} muted playsInline className="camera-feed" />
+          {engine && (
+            <PerceptionHaloLayer snapshot={engine} videoRef={videoRef} />
+          )}
+          <div className="mirror-grade" />
+          <div className="mirror-noise" />
 
-        {state !== 'RESULT' && (
-          <>
-            {!interactionConfig.zoneBypass.enabled && (
-              <div className="capture-zone-guide" aria-hidden="true">
-                <span />
-                <b>
-                  {`≈${interactionConfig.zones.approximateForwardStepMeters.toFixed(1)}M FORWARD · STEP BACK TO CANCEL`}
-                </b>
-                <span />
-              </div>
-            )}
+          <header className="mirror-header">
+            <div className="mirror-brand">
+              <span>{EVENT.title}</span>
+            </div>
+            <div className="ai-presence">
+              <i />
+              LOCAL AI PERCEPTION
+              <span>ON DEVICE</span>
+            </div>
+          </header>
 
-            <div className={`mirror-instruction state-${state.toLowerCase()}`}>
-              <p>
-                {engine && !engine.frame
-                  ? 'LOCAL MODEL INITIALIZING'
-                  : engine?.zones.capturePeople.length
-                  ? `${engine.zones.capturePeople.length}/5 IN CAPTURE AREA`
-                  : engine?.zones.engagedPeople.length
-                    ? `${engine.zones.engagedPeople.length} ${
-                        engine.zones.engagedPeople.length === 1
-                          ? 'PERSON'
-                          : 'PEOPLE'
-                      } DETECTED`
-                    : 'AI MIRROR READY'}
-              </p>
-              {state === 'COUNTDOWN' ? (
-                <strong className="mirror-countdown" key={engine?.countdown}>
-                  {engine?.countdown ?? 3}
-                </strong>
-              ) : (
-                <h1>{instruction}</h1>
-              )}
-              <small>{detail}</small>
-              {!simpleMode.enabled && state === 'DIRECT' && (
-                <div
-                  className={`gesture-progress ${
-                    gestureFeedbackProgress > 0 ? 'is-detected' : ''
-                  }`}
-                >
-                  <i
-                    style={{
-                      width: `${Math.round(gestureFeedbackProgress * 100)}%`,
-                    }}
-                  />
+          {state !== 'RESULT' && (
+            <>
+              {!interactionConfig.zoneBypass.enabled && (
+                <div className="capture-zone-guide" aria-hidden="true">
+                  <span />
+                  <b>
+                    {`≈${interactionConfig.zones.approximateForwardStepMeters.toFixed(1)}M FORWARD · STEP BACK TO CANCEL`}
+                  </b>
+                  <span />
                 </div>
               )}
-              {simpleMode.enabled &&
-                (state === 'PERCEIVING' || state === 'LOCKED') && (
+
+              <div className={`mirror-instruction state-${state.toLowerCase()}`}>
+                <p>
+                  {engine && !engine.frame
+                    ? 'LOCAL MODEL INITIALIZING'
+                    : engine?.zones.capturePeople.length
+                    ? `${engine.zones.capturePeople.length}/5 IN CAPTURE AREA`
+                    : engine?.zones.engagedPeople.length
+                      ? `${engine.zones.engagedPeople.length} ${
+                          engine.zones.engagedPeople.length === 1
+                            ? 'PERSON'
+                            : 'PEOPLE'
+                        } DETECTED`
+                      : 'AI MIRROR READY'}
+                </p>
+                {state === 'COUNTDOWN' ? (
+                  <strong className="mirror-countdown" key={engine?.countdown}>
+                    {engine?.countdown ?? 3}
+                  </strong>
+                ) : (
+                  <h1>{instruction}</h1>
+                )}
+                <small>{detail}</small>
+                {!simpleMode.enabled && state === 'DIRECT' && (
                   <div
-                    className={`simple-progress-ring ${
-                      engine?.simpleFlow?.handRaised ? 'is-boosted' : ''
-                    } ${state === 'LOCKED' ? 'is-locked' : ''}`}
-                    style={{
-                      '--simple-progress': `${Math.round(
-                        gestureFeedbackProgress * 360,
-                      )}deg`,
-                    } as React.CSSProperties}
-                    data-testid="simple-progress-ring"
-                    aria-label={`${Math.round(gestureFeedbackProgress * 100)}% ready`}
+                    className={`gesture-progress ${
+                      gestureFeedbackProgress > 0 ? 'is-detected' : ''
+                    }`}
                   >
-                    <i />
-                    <span>{Math.round(gestureFeedbackProgress * 100)}</span>
+                    <i
+                      style={{
+                        width: `${Math.round(gestureFeedbackProgress * 100)}%`,
+                      }}
+                    />
                   </div>
                 )}
-            </div>
-          </>
-        )}
+                {simpleMode.enabled &&
+                  (state === 'PERCEIVING' || state === 'LOCKED') && (
+                    <div
+                      className={`simple-progress-ring ${
+                        engine?.simpleFlow?.handRaised ? 'is-boosted' : ''
+                      } ${state === 'LOCKED' ? 'is-locked' : ''}`}
+                      style={{
+                        '--simple-progress': `${Math.round(
+                          gestureFeedbackProgress * 360,
+                        )}deg`,
+                      } as React.CSSProperties}
+                      data-testid="simple-progress-ring"
+                      aria-label={`${Math.round(gestureFeedbackProgress * 100)}% ready`}
+                    >
+                      <i />
+                      <span>{Math.round(gestureFeedbackProgress * 100)}</span>
+                    </div>
+                  )}
+              </div>
+            </>
+          )}
+
+          <footer className="mirror-footer">
+            <span>
+              {interactionConfig.zoneBypass.enabled
+                ? 'PERSON DETECTION STARTS THE PHOTO FLOW'
+                : 'ENTERING THE CAPTURE AREA STARTS THE PHOTO FLOW'}
+            </span>
+            <span>LIVE VIDEO STAYS ON THIS DEVICE</span>
+          </footer>
+        </div>
 
         {(state === 'CREATE' ||
           (simpleMode.enabled && state === 'CAPTURE' && capturedImage)) && (
@@ -647,17 +660,6 @@ export default function BoothPage() {
                 >
                   SAVE PORTRAIT
                 </a>
-                <button
-                  className="v1-action"
-                  onClick={addToWall}
-                  disabled={wallStatus !== 'idle'}
-                >
-                  {wallStatus === 'published'
-                    ? 'ADDED TO WALL'
-                    : wallStatus === 'publishing'
-                      ? 'ADDING…'
-                      : 'ADD TO WALL'}
-                </button>
                 <button className="v1-action subtle" onClick={restart}>
                   RETAKE
                 </button>
@@ -682,15 +684,6 @@ export default function BoothPage() {
             )}
           </div>
         )}
-
-        <footer className="mirror-footer">
-          <span>
-            {interactionConfig.zoneBypass.enabled
-              ? 'PERSON DETECTION STARTS THE PHOTO FLOW'
-              : 'ENTERING THE CAPTURE AREA STARTS THE PHOTO FLOW'}
-          </span>
-          <span>LIVE VIDEO STAYS ON THIS DEVICE</span>
-        </footer>
 
         <div className="sr-only" aria-live="polite">
           {instruction}. {detail}

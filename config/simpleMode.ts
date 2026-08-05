@@ -3,6 +3,10 @@ export const simpleMode = {
 
   personPresentLatchMs: 2000,
 
+  // Off while the three gestures are being evaluated: standing in view no
+  // longer fills the ring on its own, so a lock can only come from a gesture
+  // or the manual shutter. Turn back on for the unattended installation.
+  autoReadyEnabled: false,
   autoReadyMs: 5000,
   handRaisedBoostPerSec: 0.6,
   gestureConfirmFillsRing: true,
@@ -32,6 +36,17 @@ export const handGesture = {
   wasmPath: '/mediapipe/wasm',
   modelPath: '/mediapipe/models/gesture_recognizer.task',
   recognizeHz: 4,
+  // How far below the shoulder a wrist may sit and still start MediaPipe,
+  // measured in shoulder widths. The gate exists to keep inference at zero
+  // while nobody is gesturing; it is not a recognition requirement, so it only
+  // has to stay above a hanging arm. 0 restores the shoulder-height rule.
+  wristGateShoulderWidthFactor: 0.6,
+  // Chest height alone would also admit folded arms and hands at rest, so the
+  // forearm must be lifted as well when the elbow is visible. MoveNet reports
+  // every joint whether or not it found one, so an elbow only gets a vote once
+  // it clears this confidence.
+  wristGateRequireWristAboveElbow: true,
+  wristGateMinElbowConfidence: 0.3,
   cropShoulderWidthFactor: 1.2,
   inputSize: 192,
   acceptedCategories: ['Thumb_Up', 'Victory'] as const,

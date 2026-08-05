@@ -17,6 +17,7 @@ export interface SimpleFlowInput {
 
 export interface SimpleFlowConfig {
   personPresentLatchMs: number;
+  autoReadyEnabled: boolean;
   autoReadyMs: number;
   handRaisedBoostPerSec: number;
   gestureConfirmFillsRing: boolean;
@@ -90,7 +91,7 @@ export class SimpleFlowController {
     }
 
     if (this.state === 'PERCEIVING') {
-      const baseRate = 1000 / this.config.autoReadyMs;
+      const baseRate = this.baseRatePerSec();
       const boost = input.handRaised
         ? this.config.handRaisedBoostPerSec
         : 0;
@@ -170,7 +171,7 @@ export class SimpleFlowController {
       state: this.state,
       heldMs: elapsed,
       ringProgress: this.ringProgress,
-      baseRatePerSec: 1000 / this.config.autoReadyMs,
+      baseRatePerSec: this.baseRatePerSec(),
       boostRatePerSec: this.input.handRaised
         ? this.config.handRaisedBoostPerSec
         : 0,
@@ -183,6 +184,10 @@ export class SimpleFlowController {
       countdown,
       cooldownRemainingMs: Math.max(0, this.cooldownUntil - now),
     };
+  }
+
+  private baseRatePerSec() {
+    return this.config.autoReadyEnabled ? 1000 / this.config.autoReadyMs : 0;
   }
 
   private updatePresence(now: number, detected: boolean) {

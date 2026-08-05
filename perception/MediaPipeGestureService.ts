@@ -65,6 +65,9 @@ export function raisedWristCandidates(
       (rightShoulder.y - leftShoulder.y) * videoHeight,
     );
     if (shoulderWidthPx <= Number.EPSILON) return [];
+    const wristAllowance =
+      (shoulderWidthPx / videoHeight) *
+      handGesture.wristGateShoulderWidthFactor;
     return (['left', 'right'] as const).flatMap((side) => {
       const shoulder =
         side === 'left' ? leftShoulder : rightShoulder;
@@ -72,9 +75,28 @@ export function raisedWristCandidates(
         side === 'left'
           ? person.keypoints.leftWrist
           : person.keypoints.rightWrist;
+      const elbow =
+        side === 'left'
+          ? person.keypoints.leftElbow
+          : person.keypoints.rightElbow;
       // This is deliberately the only runtime gate. No confidence, hold or
       // gesture threshold is allowed to start MediaPipe while the hand is down.
-      if (!wrist || wrist.y >= shoulder.y) return [];
+      // The allowance lets a chest-height gesture through; an arm hanging at
+      // rest still produces zero inferences.
+      if (!wrist || wrist.y >= shoulder.y + wristAllowance) return [];
+      // Matches how the pose rules read confidence: a landmark that carries no
+      // score at all is trusted, a missing one is not.
+      const elbowConfidence = elbow
+        ? elbow.visibility ?? elbow.presence ?? 1
+        : 0;
+      if (
+        handGesture.wristGateRequireWristAboveElbow &&
+        elbow &&
+        elbowConfidence >= handGesture.wristGateMinElbowConfidence &&
+        wrist.y >= elbow.y
+      ) {
+        return [];
+      }
       return [{
         key: `${person.id}:${side}`,
         personId: person.id,
@@ -133,9 +155,13 @@ export function handRecognitionDue(
 }
 
 export class GestureConfirmationTracker {
-  private category: AcceptedHandGesture | null = null;
-  private candidateKey: string | null = null;
-  private count = 0;
+  // Counted per candidate hand. Recognition round-robins between raised hands,
+  // so a single shared counter would be reset by every rotation and no hand
+  // could ever reach the confirmation target while a second hand is up.
+  private readonly counts = new Map<
+    string,
+    { category: AcceptedHandGesture; count: number }
+  >();
 
   update(
     category: AcceptedHandGesture | null,
@@ -143,27 +169,29 @@ export class GestureConfirmationTracker {
     candidateKey: string,
   ) {
     if (category === null || confidence < handGesture.minConfidence) {
-      this.reset();
+      this.counts.delete(candidateKey);
       return { category: null, count: 0, confirmed: false } as const;
     }
-    if (this.category === category && this.candidateKey === candidateKey) {
-      this.count += 1;
-    } else {
-      this.category = category;
-      this.candidateKey = candidateKey;
-      this.count = 1;
-    }
+    const previous = this.counts.get(candidateKey);
+    const count =
+      previous && previous.category === category ? previous.count + 1 : 1;
+    this.counts.set(candidateKey, { category, count });
     return {
       category,
-      count: this.count,
-      confirmed: this.count >= handGesture.stableConfirmations,
+      count,
+      confirmed: count >= handGesture.stableConfirmations,
     };
   }
 
+  retain(candidateKeys: Iterable<string>) {
+    const live = new Set(candidateKeys);
+    for (const key of this.counts.keys()) {
+      if (!live.has(key)) this.counts.delete(key);
+    }
+  }
+
   reset() {
-    this.category = null;
-    this.candidateKey = null;
-    this.count = 0;
+    this.counts.clear();
   }
 }
 
@@ -276,6 +304,7 @@ export class MediaPipeGestureService {
       return this.snapshot;
     }
 
+    this.confirmation.retain(candidates.map((candidate) => candidate.key));
     this.patch({ gated: true });
     if (!handRecognitionDue(this.snapshot.lastRunAt, timestamp)) {
       return this.snapshot;

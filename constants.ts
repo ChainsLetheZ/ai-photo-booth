@@ -8,6 +8,12 @@ export const EVENT = {
   wallTitle: 'The Future We Create Together',
 } as const;
 
+/** Supplier Day 2026 KV slogan — the shape the wall assembles into. */
+export const EVENT_SLOGAN = {
+  primary: '竞速智联 共塑致远',
+  secondary: 'Accelerate Innovation · Go Beyond Together',
+} as const;
+
 export const ENERGY_CONFIG: Record<
   PrimaryEnergy,
   { number: string; label: string; description: string; color: string; accent: string }

@@ -53,8 +53,15 @@ export interface WallEntry {
   id: string;
   shortCode: string;
   createdAt: number;
-  photoUrl: string;
-  thumbUrl: string;
+  /**
+   * The one image the wall draws. A submission carries the captured
+   * `data:image/...` bytes; once stored this is a URL under `/media/wall`,
+   * because the wall store keeps photo files beside itself rather than inline.
+   *
+   * There is deliberately no separate full-resolution copy: nothing on the
+   * wall displays one. The booth keeps its own full image for printing.
+   */
+  imageUrl: string;
   primaryEnergy: PrimaryEnergy;
   secondaryDimension: SecondaryDimension;
   narrativeLine: string;

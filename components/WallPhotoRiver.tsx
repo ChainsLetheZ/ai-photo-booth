@@ -77,7 +77,7 @@ export default function WallPhotoRiver({
                   } as React.CSSProperties
                 }
               >
-                <img src={tile.entry.thumbUrl} alt="" draggable={false} />
+                <img src={tile.entry.imageUrl} alt="" draggable={false} />
               </div>
             ))}
           </div>

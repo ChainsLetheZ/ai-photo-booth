@@ -70,8 +70,7 @@ function portraitToDraft(record: PortraitRecord): WallEntrySubmission {
     record.mode === 'Single' ? 1 : record.mode === 'Pair' ? 2 : 3;
   return {
     id: record.id,
-    photoUrl: record.imageData,
-    thumbUrl: record.imageData,
+    imageUrl: record.imageData,
     primaryEnergy: record.primary,
     secondaryDimension: record.secondary,
     narrativeLine: record.narrative,

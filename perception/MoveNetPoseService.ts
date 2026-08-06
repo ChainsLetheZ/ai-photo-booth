@@ -80,6 +80,13 @@ export interface MoveNetBenchmarkResult {
   iterations: number;
   modelType: 'MULTIPOSE_LIGHTNING';
   backend: string;
+  /**
+   * The chip that actually answered. `backend: webgl` does not identify it, so
+   * without this a benchmark cannot tell which machine it measured — on a
+   * hybrid-graphics laptop the browser commonly picks the integrated GPU, and
+   * the discrete card the timings were meant to test never runs.
+   */
+  gpuRenderer: string | null;
   webglPack: boolean | null;
   webglForceF16Textures: boolean | null;
   webglVersion: number | null;
@@ -259,6 +266,31 @@ async function createMoveNetDetector(
   );
 }
 
+/**
+ * Asks WebGL which GPU it is running on, independently of TF.js. Falls back to
+ * the masked `RENDERER` string when the debug extension is unavailable, and to
+ * `null` when there is no WebGL context at all.
+ */
+function readGpuRenderer(): string | null {
+  try {
+    const canvas = document.createElement('canvas');
+    const gl = (canvas.getContext('webgl2') ??
+      canvas.getContext('webgl')) as
+      | WebGL2RenderingContext
+      | WebGLRenderingContext
+      | null;
+    if (!gl) return null;
+    const debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
+    const renderer = debugInfo
+      ? gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL)
+      : gl.getParameter(gl.RENDERER);
+    gl.getExtension('WEBGL_lose_context')?.loseContext();
+    return typeof renderer === 'string' ? renderer : null;
+  } catch {
+    return null;
+  }
+}
+
 function percentile(values: number[], fraction: number) {
   const sorted = [...values].sort((first, second) => first - second);
   const index = Math.min(
@@ -323,6 +355,7 @@ export async function runMoveNetBenchmark(
       'WEBGL_FORCE_F16_TEXTURES',
     ),
     webglVersion: readRuntimeNumber(runtime.tf, 'WEBGL_VERSION'),
+    gpuRenderer: readGpuRenderer(),
     medianMs: percentile(durations, 0.5),
     p95Ms: percentile(durations, 0.95),
     minMs: Math.min(...durations),

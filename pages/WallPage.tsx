@@ -1,5 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import BrandBar from '../components/BrandBar';
+import WallIntelligenceField, {
+  type WallIntelligencePhase,
+  type WallSignalPoint,
+} from '../components/WallIntelligenceField';
 import WallPhotoRiver from '../components/WallPhotoRiver';
 import WallPoseFigure from '../components/WallPoseFigure';
 import { wallConfig } from '../config/wallConfig';
@@ -17,7 +21,7 @@ import type { WallEntry } from '../types';
  * A new photo floats on its own first, then the wall gathers into the register
  * around it, shows the pose that was perceived, and finally reveals the photo.
  */
-type JoinPhase = 'arriving' | 'perception' | 'settling';
+type JoinPhase = WallIntelligencePhase;
 
 /**
  * At rest the wall is a river of large photos. A capture breaks it into
@@ -25,6 +29,15 @@ type JoinPhase = 'arriving' | 'perception' | 'settling';
  * river. Only the operator button takes it to the slogan.
  */
 type Formation = 'scroll' | 'drift' | 'grid';
+
+const PREVIEW_SIGNAL_COUNT = 12;
+const DEMO_ASSEMBLY_SIGNAL_COUNT = wallConfig.capacity;
+const PREVIEW_ENERGIES = [
+  ENERGY_CONFIG.Intelligence.accent,
+  ENERGY_CONFIG.Motion.accent,
+  ENERGY_CONFIG.Life.accent,
+  ENERGY_CONFIG.Impact.accent,
+] as const;
 
 function upsert(records: WallEntry[], entry: WallEntry) {
   return [...records.filter((item) => item.id !== entry.id), entry]
@@ -111,17 +124,19 @@ export default function WallPage() {
         () => setPhase('settling'),
         arrivalDriftMs + perceptionMs,
       ),
+      window.setTimeout(
+        () => setPhase('integrated'),
+        arrivalDriftMs + perceptionMs + settleMs,
+      ),
       window.setTimeout(() => {
+        // A capture that lands while this one is still settling keeps the
+        // register formed; only the last one lets the wall break apart.
+        pendingArrivalsRef.current -= 1;
         setJoinPhases((current) => {
           const next = { ...current };
           delete next[entry.id];
           return next;
         });
-      }, arrivalDriftMs + perceptionMs + settleMs),
-      window.setTimeout(() => {
-        // A capture that lands while this one is still settling keeps the
-        // register formed; only the last one lets the wall break apart.
-        pendingArrivalsRef.current -= 1;
         if (pendingArrivalsRef.current <= 0) setFormation('scroll');
       }, arrivalDriftMs + perceptionMs + settleMs + holdMs),
     );
@@ -233,12 +248,72 @@ export default function WallPage() {
     );
   }, [records]);
 
-  /** What the room has earned: the richest phrase its photo count can draw. */
+  const activeJoin = useMemo(() => {
+    const joining = records
+      .filter((entry) => joinPhases[entry.id])
+      .sort((left, right) => right.createdAt - left.createdAt)[0];
+    if (!joining) return null;
+    const slot = slots.find((candidate) => candidate.shortCode === joining.shortCode);
+    if (!slot) return null;
+
+    const pointFor = (entry: WallEntry, entrySlot: (typeof slots)[number]): WallSignalPoint => {
+      const drift = driftByCode.get(entry.shortCode);
+      const useDrift = formation !== 'grid' && drift;
+      return {
+        id: entry.id,
+        x: useDrift ? drift.x * layoutWidth : entrySlot.x + cellWidthPx / 2,
+        y: useDrift ? drift.y * layoutHeight : entrySlot.y + cellHeightPx / 2,
+      };
+    };
+
+    const focus = pointFor(joining, slot);
+    const nodes = records
+      .filter((entry) => entry.id !== joining.id)
+      .map((entry) => {
+        const entrySlot = slots.find(
+          (candidate) => candidate.shortCode === entry.shortCode,
+        );
+        if (!entrySlot) return null;
+        const point = pointFor(entry, entrySlot);
+        return {
+          ...point,
+          distance: Math.hypot(point.x - focus.x, point.y - focus.y),
+        };
+      })
+      .filter((point): point is WallSignalPoint & { distance: number } => Boolean(point))
+      .sort((left, right) => left.distance - right.distance)
+      .slice(0, 10);
+
+    return {
+      entry: joining,
+      phase: joinPhases[joining.id],
+      focus,
+      nodes,
+    };
+  }, [driftByCode, formation, joinPhases, records, slots]);
+
+  /** What the room has earned from real portraits. */
   const decision = useMemo(
-    () => planAssembly(records.length, layoutWidth, layoutHeight),
+    () =>
+      planAssembly(records.length, layoutWidth, layoutHeight, [
+        wallConfig.assemble.targets[1],
+      ]),
     [records.length],
   );
-  const plan = decision.ready ? decision.plan : null;
+  const livePlan = decision.ready ? decision.plan : null;
+  const demoDecision = useMemo(
+    () =>
+      planAssembly(
+        DEMO_ASSEMBLY_SIGNAL_COUNT,
+        layoutWidth,
+        layoutHeight,
+        [wallConfig.assemble.targets[1]],
+      ),
+    [],
+  );
+  const demoPlan = demoDecision.ready ? demoDecision.plan : null;
+  const plan = livePlan ?? demoPlan;
+  const demoAssembling = assembled && !livePlan;
 
   /**
    * Targets are handed out in capture order, so the phrase is written in the
@@ -246,6 +321,14 @@ export default function WallPage() {
    */
   const assembly = useMemo(() => {
     if (!assembled || !plan) return null;
+    if (!livePlan) {
+      return new Map(
+        slots.slice(0, DEMO_ASSEMBLY_SIGNAL_COUNT).map((slot, index) => [
+          slot.shortCode,
+          { target: plan.targets[index], order: index },
+        ]),
+      );
+    }
     const ordered = [...records].sort(
       (left, right) => left.createdAt - right.createdAt,
     );
@@ -255,29 +338,45 @@ export default function WallPage() {
         { target: plan.targets[index], order: index },
       ]),
     );
-  }, [assembled, plan, records]);
+  }, [assembled, livePlan, plan, records, slots]);
 
   const riverActive = !assembled && formation === 'scroll' && records.length > 0;
 
   return (
     <main className="wall-shell">
       <BrandBar wall />
-      <section className="collective-stage wall-layout-review" ref={stageRef}>
+      <section
+        className={`collective-stage wall-layout-review ${
+          activeJoin ? `is-ai-joining is-ai-${activeJoin.phase}` : ''
+        }`}
+        ref={stageRef}
+      >
         <WallPhotoRiver entries={records} active={riverActive} />
+
+        {activeJoin && (
+          <div
+            className="wall-ai-atmosphere"
+            style={
+              {
+                '--wall-ai-energy':
+                  ENERGY_CONFIG[activeJoin.entry.primaryEnergy].accent,
+              } as React.CSSProperties
+            }
+            aria-hidden="true"
+          />
+        )}
 
         <header className="wall-stage-label">
           {/* Kept away from the assemble control: nobody should reach for the
               stage moment and land on navigation, or the reverse. Hidden while
               the phrase is formed — no chrome in the middle of it. */}
-          {!assembled && (
-            <button
-              type="button"
-              className="wall-back-button"
-              onClick={goToBooth}
-            >
-              ← BOOTH
-            </button>
-          )}
+          <button
+            type="button"
+            className="wall-back-button"
+            onClick={goToBooth}
+          >
+            ← BOOTH
+          </button>
           <span>COLLECTIVE WALL · LAYOUT REVIEW</span>
           <strong>200 PLACES · #101—#300</strong>
         </header>
@@ -294,13 +393,51 @@ export default function WallPage() {
             } as React.CSSProperties
           }
         >
+          {activeJoin && (
+            <WallIntelligenceField
+              width={layoutWidth}
+              height={layoutHeight}
+              focus={activeJoin.focus}
+              nodes={activeJoin.nodes}
+              phase={activeJoin.phase}
+              energy={ENERGY_CONFIG[activeJoin.entry.primaryEnergy].accent}
+            />
+          )}
+          {assembled && plan && (
+            <div
+              className="wall-slogan-ink"
+              style={
+                {
+                  '--wall-slogan-font-size': `${
+                    Math.min(
+                      120,
+                      Math.floor(
+                        wallConfig.assemble.sampleWidth /
+                          Math.max(EVENT_SLOGAN.primary.length * 0.85, 6),
+                      ),
+                    ) *
+                    (layoutWidth / wallConfig.assemble.sampleWidth)
+                  }px`,
+                } as React.CSSProperties
+              }
+              aria-hidden="true"
+            >
+              {EVENT_SLOGAN.primary}
+            </div>
+          )}
           {slots.map((slot) => {
             const entry = entriesByCode.get(slot.shortCode);
+            const preview =
+              !entry &&
+              (slot.index < PREVIEW_SIGNAL_COUNT ||
+                (demoAssembling && slot.index < DEMO_ASSEMBLY_SIGNAL_COUNT));
             const motion = entry ? entryMotion(entry.id) : null;
             const phase = entry ? joinPhases[entry.id] : undefined;
             const figure =
-              entry && phase ? leadFigure(entry.poseTrace) : null;
-            const flight = entry ? assembly?.get(entry.shortCode) : undefined;
+              entry && (phase === 'perception' || phase === 'settling')
+                ? leadFigure(entry.poseTrace)
+                : null;
+            const flight = assembly?.get(slot.shortCode);
             const energy = entry
               ? ENERGY_CONFIG[entry.primaryEnergy]
               : undefined;
@@ -338,6 +475,8 @@ export default function WallPage() {
             return (
               <div
                 className={`hex-wall-slot ${entry ? 'is-filled' : 'is-empty'} ${
+                  preview ? 'is-preview' : ''
+                } ${
                   !entry && standbySlots.has(slot.index)
                     ? 'is-standby-glow'
                     : ''
@@ -347,7 +486,7 @@ export default function WallPage() {
                   adrift ? 'is-adrift' : ''
                 } ${
                   !assembled &&
-                  (riverActive || (!entry && formation !== 'grid'))
+                  (riverActive || (!entry && formation === 'drift'))
                     ? 'is-hidden'
                     : ''
                 }`}
@@ -355,7 +494,9 @@ export default function WallPage() {
                 aria-label={
                   entry
                     ? `Wall portrait ${slot.shortCode}`
-                    : `Empty wall place ${slot.shortCode}`
+                    : preview
+                      ? `Preview portrait place ${slot.shortCode}`
+                      : `Empty wall place ${slot.shortCode}`
                 }
                 style={
                   {
@@ -385,6 +526,9 @@ export default function WallPage() {
                       ? `${motion.delay.toFixed(0)}ms`
                       : undefined,
                     '--wall-energy': energy?.accent,
+                    '--wall-preview-energy': preview
+                      ? PREVIEW_ENERGIES[slot.index % PREVIEW_ENERGIES.length]
+                      : undefined,
                     '--wall-join-perception': `${wallConfig.joinAnimation.perceptionMs}ms`,
                     '--wall-join-settle': `${wallConfig.joinAnimation.settleMs}ms`,
                   } as React.CSSProperties
@@ -396,10 +540,18 @@ export default function WallPage() {
                     personCount={entry?.personCount ?? 1}
                   />
                 )}
+                {preview && (
+                  <div className="wall-preview-portrait" aria-hidden="true">
+                    <i className="wall-preview-head" />
+                    <i className="wall-preview-body" />
+                    <span>AI SIGNAL</span>
+                    <small>#{slot.shortCode}</small>
+                  </div>
+                )}
                 {entry && (
                   <img
                     className="hex-wall-photo"
-                    src={entry.thumbUrl}
+                    src={entry.imageUrl}
                     alt={`Collective portrait ${entry.shortCode}`}
                   />
                 )}
@@ -408,10 +560,65 @@ export default function WallPage() {
           })}
         </div>
 
+        {records.length === 0 && !activeJoin && !assembled && (
+          <aside className="wall-preview-note">
+            <i />
+            <div>
+              <strong>WALL PREVIEW ACTIVE</strong>
+              <span>LIVE PORTRAITS WILL REPLACE THESE SIGNALS</span>
+            </div>
+          </aside>
+        )}
+
+        {activeJoin && (
+          <aside
+            className={`wall-ai-readout is-${activeJoin.phase}`}
+            style={
+              {
+                '--wall-ai-energy':
+                  ENERGY_CONFIG[activeJoin.entry.primaryEnergy].accent,
+              } as React.CSSProperties
+            }
+            aria-live="polite"
+          >
+            <div className="wall-ai-readout-heading">
+              <i />
+              <span>COLLECTIVE INTELLIGENCE</span>
+              <b>#{activeJoin.entry.shortCode}</b>
+            </div>
+            <strong>
+              {activeJoin.phase === 'arriving'
+                ? 'SIGNAL ENTERING FIELD'
+                : activeJoin.phase === 'perception'
+                  ? 'POSE SIGNATURE DETECTED'
+                  : activeJoin.phase === 'settling'
+                    ? 'SYNTHESIZING CONNECTIONS'
+                    : 'COLLECTIVE MODEL UPDATED'}
+            </strong>
+            <div className="wall-ai-progress" aria-hidden="true">
+              <i className="is-drift" />
+              <i className="is-read" />
+              <i className="is-link" />
+              <i className="is-lock" />
+            </div>
+            <small>
+              {activeJoin.phase === 'integrated'
+                ? `${records.length.toString().padStart(3, '0')} PORTRAITS · SIGNAL INTEGRATED`
+                : `${activeJoin.nodes.length.toString().padStart(2, '0')} NEAREST SIGNALS LINKED`}
+            </small>
+          </aside>
+        )}
+
         {assembled && plan && (
           <div className="wall-assemble-caption">
             <p>{EVENT_SLOGAN.primary}</p>
             <span>{EVENT_SLOGAN.secondary}</span>
+          </div>
+        )}
+
+        {demoAssembling && (
+          <div className="wall-demo-assembly-badge">
+            DEMO MODE · {DEMO_ASSEMBLY_SIGNAL_COUNT} SYNTHETIC SIGNALS
           </div>
         )}
 
@@ -421,24 +628,23 @@ export default function WallPage() {
             {connected ? 'LIVE LINK' : 'RECONNECTING'}
           </span>
           <span>{records.length.toString().padStart(3, '0')} / 200 STORED</span>
-          {/* Operator control. The assemble never fires on its own, and it
-              refuses rather than draw a phrase out of too few photos. */}
+          {/* Real portraits win. Synthetic signals complete the same finale
+              while the live wall is still below the required photo count. */}
           <button
             type="button"
             className="wall-assemble-button"
             onClick={() => setAssembled((current) => !current)}
-            disabled={!plan}
             title={
               plan
-                ? `${plan.primary} · ${Math.round(plan.tileSizePx)}px tiles`
+                ? `${livePlan ? 'LIVE' : 'DEMO'} · ${plan.primary} · ${Math.round(plan.tileSizePx)}px tiles`
                 : undefined
             }
           >
             {assembled
               ? 'RETURN TO WALL'
-              : plan
-                ? 'ASSEMBLE SLOGAN'
-                : `NEEDS ${decision.ready ? 0 : decision.minimumPhotos} PHOTOS`}
+              : livePlan
+                ? 'ASSEMBLE 8-CHAR FINALE'
+                : 'PREVIEW 8-CHAR ASSEMBLY'}
           </button>
         </div>
       </section>

@@ -227,6 +227,11 @@ export default function BoothPage() {
         )
       : engine?.stability.progress ?? 0;
 
+  const goToWall = useCallback(() => {
+    window.history.pushState(null, '', '/wall');
+    window.dispatchEvent(new PopStateEvent('popstate'));
+  }, []);
+
   const restart = useCallback(() => {
     generationStartedRef.current = false;
     setCapturedImage(null);
@@ -489,6 +494,16 @@ export default function BoothPage() {
           <p>Accelerate Innovation　Go Beyond Together</p>
         </div>
 
+        <button
+          type="button"
+          className="booth-wall-preview"
+          onClick={goToWall}
+        >
+          <span>OPEN COLLECTIVE WALL</span>
+          <small>WALL PREVIEW</small>
+          <b>→</b>
+        </button>
+
         <div className="kv-portal">
           <video ref={videoRef} muted playsInline className="camera-feed" />
           {engine && (
@@ -636,10 +651,6 @@ export default function BoothPage() {
                 ) : null}
                 <span>AI-ASSISTED · LOCAL POSE PERCEPTION</span>
               </div>
-              <div className="result-wall-code">
-                <strong>#{portrait.shortCode}</strong>
-                <span>你的编号 · 到大屏输入它找到自己</span>
-              </div>
             </div>
             <div className="v1-result-copy">
               <p>YOUR FUTURE PORTRAIT</p>
@@ -664,9 +675,13 @@ export default function BoothPage() {
                   RETAKE
                 </button>
               </div>
-              <a className="v1-wall-link" href="/wall">
+              <button
+                type="button"
+                className="v1-wall-link"
+                onClick={goToWall}
+              >
                 VIEW COLLECTIVE WALL →
-              </a>
+              </button>
             </div>
           </div>
         )}

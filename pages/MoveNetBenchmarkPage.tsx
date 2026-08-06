@@ -82,6 +82,14 @@ export default function MoveNetBenchmarkPage() {
             <dl style={{ display: 'grid', gridTemplateColumns: '260px 1fr', gap: 8, maxWidth: 660 }}>
               <dt>MODEL</dt><dd>{result.modelType}</dd>
               <dt>BACKEND</dt><dd>{result.backend}</dd>
+              <dt>GPU</dt>
+              <dd>
+                <strong>{result.gpuRenderer ?? 'UNKNOWN'}</strong>
+                <div style={{ color: '#7bd5ef', fontSize: 12, marginTop: 4 }}>
+                  Confirm this names the chip you meant to measure before
+                  trusting any timing below it.
+                </div>
+              </dd>
               <dt>WEBGL_PACK</dt><dd>{String(result.webglPack)}</dd>
               <dt>WEBGL_FORCE_F16_TEXTURES</dt><dd>{String(result.webglForceF16Textures)}</dd>
               <dt>WEBGL_VERSION</dt><dd>{result.webglVersion ?? '—'}</dd>

@@ -14,6 +14,7 @@ import { wallConfig } from "./config/wallConfig";
 import { PRINT_6INCH_SERVER } from "./constants";
 import { ensureHttpsCert } from "./scripts/ensure-https-cert.mjs";
 import { WallRepository } from "./services/wallRepository";
+import { WALL_MEDIA_ROUTE, wallMediaDirectory } from "./services/wallMedia";
 import type { WallEntrySubmission, WallSocketMessage } from "./types";
 
 const MAX_PORTRAIT_DATA_LENGTH = 4_000_000;
@@ -30,12 +31,9 @@ function isWallEntryDraft(value: unknown): value is WallEntrySubmission {
   const draft = value as Partial<WallEntrySubmission>;
   return (
     typeof draft.id === "string" &&
-    typeof draft.photoUrl === "string" &&
-    draft.photoUrl.startsWith("data:image/") &&
-    draft.photoUrl.length <= MAX_PORTRAIT_DATA_LENGTH &&
-    typeof draft.thumbUrl === "string" &&
-    draft.thumbUrl.startsWith("data:image/") &&
-    draft.thumbUrl.length <= MAX_PORTRAIT_DATA_LENGTH &&
+    typeof draft.imageUrl === "string" &&
+    draft.imageUrl.startsWith("data:image/") &&
+    draft.imageUrl.length <= MAX_PORTRAIT_DATA_LENGTH &&
     ALLOWED_PRIMARY.includes(draft.primaryEnergy ?? "") &&
     ALLOWED_SECONDARY.includes(draft.secondaryDimension ?? "") &&
     typeof draft.narrativeLine === "string" &&
@@ -69,12 +67,11 @@ async function startServer() {
   const app = express();
   const port = Number(process.env.PORT || 3000);
   const useHttps = wantsHttps();
-  const wallRepository = new WallRepository(
-    path.resolve(
-      process.cwd(),
-      process.env.WALL_DATA_FILE || wallConfig.persistenceFile,
-    ),
+  const wallDataFile = path.resolve(
+    process.cwd(),
+    process.env.WALL_DATA_FILE || wallConfig.persistenceFile,
   );
+  const wallRepository = new WallRepository(wallDataFile);
   let wallWebSocket: WebSocketServer | null = null;
 
   const broadcastWallMessage = (message: WallSocketMessage) => {
@@ -86,6 +83,20 @@ async function startServer() {
 
   app.use(cors());
   app.use(express.json({ limit: "50mb" }));
+
+  // Stored wall photos. A file here is written once under a name derived from
+  // its entry id and never rewritten, so it can be cached indefinitely — that
+  // is what keeps a wall reload or reconnect from re-downloading the room.
+  // `fallthrough: false` makes a missing photo a 404 instead of letting the
+  // SPA catch-all answer an <img> request with index.html.
+  app.use(
+    WALL_MEDIA_ROUTE,
+    express.static(wallMediaDirectory(wallDataFile), {
+      immutable: true,
+      maxAge: "365d",
+      fallthrough: false,
+    }),
+  );
 
   // Optional LLM enhancement. This endpoint accepts behavioral metadata only;
   // no image, video frame or identity data is sent to Gemini.
@@ -198,6 +209,9 @@ async function startServer() {
     } catch (error) {
       if (error instanceof Error && error.message === "WALL_CAPACITY_REACHED") {
         return res.status(409).json({ error: "Wall capacity reached" });
+      }
+      if (error instanceof Error && error.message === "WALL_MEDIA_INVALID") {
+        return res.status(400).json({ error: "Unreadable portrait image" });
       }
       console.error("Wall persistence failed:", error);
       res.status(500).json({ error: "Unable to persist wall entry" });

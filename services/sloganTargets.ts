@@ -180,11 +180,13 @@ export function planAssembly(
   photoCount: number,
   layoutWidth: number,
   layoutHeight: number,
+  candidates: readonly { primary: string; secondary: string }[] =
+    wallConfig.assemble.targets,
 ): AssembleDecision {
-  const { sampleWidth, sampleHeight, targets } = wallConfig.assemble;
+  const { sampleWidth, sampleHeight } = wallConfig.assemble;
   let simplestMinimum = Number.POSITIVE_INFINITY;
 
-  for (const candidate of targets) {
+  for (const candidate of candidates) {
     const alpha = rasterise(candidate.primary, candidate.secondary);
     if (!alpha) continue;
     const requirement = targetRequirement(

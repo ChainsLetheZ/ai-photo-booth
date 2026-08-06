@@ -16,7 +16,7 @@ function cross(origin: PoseTracePoint, first: PoseTracePoint, second: PoseTraceP
   );
 }
 
-function convexHull(points: PoseTracePoint[]) {
+export function convexHull(points: PoseTracePoint[]) {
   if (points.length <= 3) return points;
   const sorted = [...points].sort((first, second) =>
     first.x === second.x ? first.y - second.y : first.x - second.x,

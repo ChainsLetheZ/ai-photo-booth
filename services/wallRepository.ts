@@ -2,9 +2,24 @@ import fs from 'fs';
 import path from 'path';
 import { wallConfig } from '../config/wallConfig';
 import type { WallEntry, WallEntrySubmission } from '../types';
+import {
+  decodeDataUrl,
+  isDataUrl,
+  isWallMediaUrl,
+  mediaBaseName,
+  wallMediaDirectory,
+  writeWallImage,
+} from './wallMedia';
 
+/**
+ * Version 4 stores one image per entry. Earlier versions carried a separate
+ * full-resolution `photoUrl` alongside `thumbUrl`, both holding the same bytes
+ * and neither ever displayed at full size; version 2 also kept those bytes
+ * inline as base64. Both older shapes are still readable and are converted the
+ * first time the store is opened.
+ */
 interface PersistedWallState {
-  version: 2;
+  version: 4;
   nextShortCode: number;
   entries: WallEntry[];
   reservations: Record<string, string>;
@@ -12,11 +27,34 @@ interface PersistedWallState {
 
 function emptyState(): PersistedWallState {
   return {
-    version: 2,
+    version: 4,
     nextShortCode: wallConfig.firstShortCode,
     entries: [],
     reservations: {},
   };
+}
+
+function isStorableImageUrl(value: unknown): value is string {
+  return (
+    typeof value === 'string' && (isDataUrl(value) || isWallMediaUrl(value))
+  );
+}
+
+interface LegacyImageFields {
+  thumbUrl?: unknown;
+  photoUrl?: unknown;
+}
+
+/** Folds an older entry's two image fields into the single one. */
+function withImageUrl(raw: unknown) {
+  if (!raw || typeof raw !== 'object') return raw;
+  const entry = raw as Partial<WallEntry> & LegacyImageFields;
+  if (isStorableImageUrl(entry.imageUrl)) return entry;
+  const legacy = isStorableImageUrl(entry.thumbUrl)
+    ? entry.thumbUrl
+    : entry.photoUrl;
+  const { thumbUrl, photoUrl, ...rest } = entry;
+  return isStorableImageUrl(legacy) ? { ...rest, imageUrl: legacy } : rest;
 }
 
 function isWallEntry(value: unknown): value is WallEntry {
@@ -26,10 +64,7 @@ function isWallEntry(value: unknown): value is WallEntry {
     typeof entry.id === 'string' &&
     /^\d{3,}$/.test(entry.shortCode ?? '') &&
     typeof entry.createdAt === 'number' &&
-    typeof entry.photoUrl === 'string' &&
-    entry.photoUrl.startsWith('data:image/') &&
-    typeof entry.thumbUrl === 'string' &&
-    entry.thumbUrl.startsWith('data:image/') &&
+    isStorableImageUrl(entry.imageUrl) &&
     typeof entry.primaryEnergy === 'string' &&
     typeof entry.secondaryDimension === 'string' &&
     typeof entry.narrativeLine === 'string' &&
@@ -41,9 +76,14 @@ function isWallEntry(value: unknown): value is WallEntry {
 
 export class WallRepository {
   private state: PersistedWallState;
+  private readonly mediaDirectory: string;
+  /** Set by `read()` when the file on disk was written by an older version. */
+  private upgradedOnRead = false;
 
   constructor(private readonly filePath: string) {
+    this.mediaDirectory = wallMediaDirectory(filePath);
     this.state = this.read();
+    if (this.migrateInlineImages() || this.upgradedOnRead) this.write();
   }
 
   list(): WallEntry[] {
@@ -93,8 +133,11 @@ export class WallRepository {
     }
 
     const { requestedShortCode, ...entryDraft } = draft;
+    // The image lands on disk before the entry exists, so a failed write can
+    // never leave a stored entry pointing at a file that is not there.
     const entry: WallEntry = {
       ...entryDraft,
+      imageUrl: this.storeImage(draft.id, entryDraft.imageUrl),
       shortCode: this.reserve(draft.id, requestedShortCode),
       createdAt: Date.now(),
     };
@@ -103,14 +146,43 @@ export class WallRepository {
     return { entry, added: true };
   }
 
+  /**
+   * Accepts either form: a data URL is written out and replaced by its URL, an
+   * already stored URL passes through so a replayed submission is idempotent.
+   */
+  private storeImage(id: string, value: string) {
+    if (isWallMediaUrl(value)) return value;
+    const image = decodeDataUrl(value);
+    if (!image) throw new Error('WALL_MEDIA_INVALID');
+    return writeWallImage(this.mediaDirectory, mediaBaseName(id), image);
+  }
+
+  /** Moves any version 2 inline base64 entry onto disk. */
+  private migrateInlineImages() {
+    let changed = false;
+    for (const entry of this.state.entries) {
+      if (!isDataUrl(entry.imageUrl)) continue;
+      try {
+        entry.imageUrl = this.storeImage(entry.id, entry.imageUrl);
+        changed = true;
+      } catch {
+        // An undecodable legacy entry keeps its inline data rather than being
+        // dropped; the wall can still render it.
+      }
+    }
+    return changed;
+  }
+
   private read(): PersistedWallState {
     try {
       const parsed = JSON.parse(fs.readFileSync(this.filePath, 'utf8')) as
         | Partial<PersistedWallState>
         | WallEntry[];
       if (Array.isArray(parsed)) {
+        this.upgradedOnRead = true;
         const entries = parsed
           .map((entry) => ({ ...entry, poseTrace: [], poseTraceVersion: 2 as const }))
+          .map(withImageUrl)
           .filter(isWallEntry)
           .slice(0, wallConfig.capacity);
         const maxCode = entries.reduce(
@@ -118,7 +190,7 @@ export class WallRepository {
           wallConfig.firstShortCode - 1,
         );
         return {
-          version: 2,
+          version: 4,
           nextShortCode: maxCode + 1,
           entries,
           reservations: Object.fromEntries(
@@ -126,13 +198,18 @@ export class WallRepository {
           ),
         };
       }
+      // Pose traces and reservations both arrived in version 2, so every
+      // version at or above it carries them through untouched.
+      const storedVersion = Number(parsed.version) || 1;
+      if (storedVersion < 4) this.upgradedOnRead = true;
       const entries = Array.isArray(parsed.entries)
         ? parsed.entries
             .map((entry) =>
-              parsed.version === 2
+              storedVersion >= 2
                 ? entry
                 : { ...entry, poseTrace: [], poseTraceVersion: 2 as const },
             )
+            .map(withImageUrl)
             .filter(isWallEntry)
             .slice(0, wallConfig.capacity)
         : [];
@@ -141,7 +218,7 @@ export class WallRepository {
         wallConfig.firstShortCode - 1,
       );
       return {
-        version: 2,
+        version: 4,
         nextShortCode: Math.max(
           Number(parsed.nextShortCode) || wallConfig.firstShortCode,
           maxCode + 1,
@@ -149,7 +226,7 @@ export class WallRepository {
         entries,
         reservations: {
           ...Object.fromEntries(entries.map((entry) => [entry.id, entry.shortCode])),
-          ...(parsed.version === 2 && parsed.reservations
+          ...(storedVersion >= 2 && parsed.reservations
             ? parsed.reservations
             : {}),
         },

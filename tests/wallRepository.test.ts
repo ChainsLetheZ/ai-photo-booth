@@ -4,13 +4,17 @@ import os from 'node:os';
 import path from 'node:path';
 import { wallConfig } from '../config/wallConfig';
 import { WallRepository } from '../services/wallRepository';
+import { WALL_MEDIA_ROUTE, wallMediaDirectory } from '../services/wallMedia';
 import type { WallEntryDraft } from '../types';
+
+function storedFile(directory: string, url: string) {
+  return path.join(directory, url.slice(`${WALL_MEDIA_ROUTE}/`.length));
+}
 
 function draft(id: string): WallEntryDraft {
   return {
     id,
-    photoUrl: 'data:image/jpeg;base64,AA==',
-    thumbUrl: 'data:image/webp;base64,AA==',
+    imageUrl: 'data:image/jpeg;base64,AA==',
     primaryEnergy: 'Intelligence',
     secondaryDimension: 'Precision',
     narrativeLine: 'A precise collective signal.',
@@ -22,12 +26,19 @@ function draft(id: string): WallEntryDraft {
 
 const tempDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'wall-repository-test-'));
 const storePath = path.join(tempDirectory, 'wall-entries.json');
+const mediaDirectory = wallMediaDirectory(storePath);
 
 try {
   const firstRepository = new WallRepository(storePath);
   const first = firstRepository.add(draft('first'));
   assert.equal(first.added, true);
   assert.equal(first.entry.shortCode, '101');
+
+  // The photo is stored as a file and the entry keeps only its URL, so adding
+  // a capture never rewrites the bytes of every earlier capture.
+  assert.ok(first.entry.imageUrl.startsWith(`${WALL_MEDIA_ROUTE}/`));
+  assert.ok(fs.existsSync(storedFile(mediaDirectory, first.entry.imageUrl)));
+  assert.ok(!fs.readFileSync(storePath, 'utf8').includes('data:image'));
 
   const duplicate = firstRepository.add(draft('first'));
   assert.equal(duplicate.added, false);
@@ -66,6 +77,53 @@ try {
     layoutHeight <= wallConfig.layout.referenceHeightPx - 78 - 80,
     `Expected about 40px vertical margin, got layout height ${layoutHeight}`,
   );
+
+  // Ids come from the browser, so one that looks like a path must not be able
+  // to write outside the media folder.
+  const traversalPath = path.join(tempDirectory, 'traversal', 'wall-entries.json');
+  const traversalMedia = wallMediaDirectory(traversalPath);
+  const traversalEntry = new WallRepository(traversalPath).add(
+    draft('../../escape'),
+  ).entry;
+  assert.ok(traversalEntry.imageUrl.startsWith(`${WALL_MEDIA_ROUTE}/`));
+  assert.equal(
+    path.dirname(path.resolve(storedFile(traversalMedia, traversalEntry.imageUrl))),
+    path.resolve(traversalMedia),
+  );
+
+  // A version 2 store holds inline base64 under the old two-field shape. It
+  // must come back as one entry with one image file and no inline bytes.
+  const { imageUrl, ...legacyRest } = draft('legacy');
+  const legacyPath = path.join(tempDirectory, 'legacy', 'wall-entries.json');
+  fs.mkdirSync(path.dirname(legacyPath), { recursive: true });
+  fs.writeFileSync(
+    legacyPath,
+    JSON.stringify({
+      version: 2,
+      nextShortCode: 102,
+      entries: [
+        {
+          ...legacyRest,
+          photoUrl: imageUrl,
+          thumbUrl: imageUrl,
+          shortCode: '101',
+          createdAt: 1,
+        },
+      ],
+      reservations: { legacy: '101' },
+    }),
+    'utf8',
+  );
+  const migrated = new WallRepository(legacyPath).list();
+  assert.equal(migrated.length, 1);
+  assert.equal(migrated[0].shortCode, '101');
+  assert.ok(migrated[0].imageUrl.startsWith(`${WALL_MEDIA_ROUTE}/`));
+  assert.ok(
+    fs.existsSync(storedFile(wallMediaDirectory(legacyPath), migrated[0].imageUrl)),
+  );
+  const legacyText = fs.readFileSync(legacyPath, 'utf8');
+  assert.ok(!legacyText.includes('data:image'));
+  assert.ok(!legacyText.includes('thumbUrl') && !legacyText.includes('photoUrl'));
 } finally {
   fs.rmSync(tempDirectory, { recursive: true, force: true });
 }

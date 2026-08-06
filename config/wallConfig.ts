@@ -90,10 +90,6 @@ export const wallConfig = {
       { primary: 'ML4', secondary: '' },
     ],
   },
-  lookup: {
-    holdMs: 8000,
-    notFoundMs: 2000,
-  },
   reconnect: {
     initialDelayMs: 750,
     maxDelayMs: 8000,

@@ -1,0 +1,186 @@
+/* Movement four: the spine opens, portraits riffle past it, the page that does
+   not turn away becomes the statement. Scoped to this component so it never
+   collides with the wall's own stylesheet.
+
+   Everything that animates is transform, opacity or filter. Nothing here reads
+   or writes layout. */
+
+.slogan-flip {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 420ms ease;
+  /* The hinge every page turns around, and where movement three's line lands. */
+  --spine-y: 50%;
+}
+.slogan-flip.is-running {
+  opacity: 1;
+}
+
+/* The field the whole sequence sits on. Never black: its stops are the four
+   energy colours in the proportion this room actually produced, so the ground
+   is a readout of the crowd rather than a backdrop. */
+.slogan-flip-field {
+  position: absolute;
+  inset: -18%;
+  background: var(--flip-field);
+  filter: saturate(var(--flip-heat, 0.6)) brightness(var(--flip-lift, 0.52));
+  transform: scale(var(--flip-swell, 1.04));
+  will-change: filter;
+}
+/* Opened almost fully while the pages run — a tight vignette would crop the
+   one thing the movement is for — then closed again under the sentence. */
+.slogan-flip-vignette {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(
+    ellipse 96% 84% at 50% var(--spine-y),
+    transparent 34%,
+    rgba(1, 4, 8, 0.94) 100%
+  );
+  opacity: var(--flip-vignette, 0.5);
+}
+
+/* The dolly. One continuous push from the first frame to the last. */
+.slogan-flip-camera {
+  position: absolute;
+  inset: 0;
+  transform: scale(var(--camera-scale, 1)) rotate(var(--camera-roll, 0deg));
+  transform-origin: 50% var(--spine-y);
+  will-change: transform;
+}
+
+.slogan-flip-stage {
+  position: absolute;
+  inset: 0;
+  perspective: 1150px;
+  perspective-origin: 50% var(--spine-y);
+  transform-style: preserve-3d;
+}
+
+/* A fixed pool of nodes. Each is handed the next portrait when its own page
+   leaves, so two hundred photos never become two hundred elements.
+
+   Pages are larger than the viewport on purpose: at mid-turn one fills the wall
+   completely and you are inside the stack rather than watching it. */
+.slogan-flip-card {
+  position: absolute;
+  left: 50%;
+  top: var(--spine-y);
+  width: 132vw;
+  height: 118vh;
+  margin-left: -66vw;
+  margin-top: -59vh;
+  transform-origin: 50% 50%;
+  transform-style: preserve-3d;
+  opacity: 0;
+  will-change: transform, opacity;
+}
+.slogan-flip-card img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center 32%;
+  box-shadow: 0 40px 130px rgba(0, 0, 0, 0.7);
+  /* Blur rides the page's real angular speed, so the readable flat moment stays
+     sharp and only the fast steep pages smear. */
+  filter: blur(var(--card-blur, 0px));
+  backface-visibility: hidden;
+}
+/* Light catching the leading edge as the page turns. Kept off the blurred
+   layer so the edge stays a hard specular line. */
+.slogan-flip-card::after {
+  position: absolute;
+  content: '';
+  inset: 0;
+  background: linear-gradient(
+    to top,
+    color-mix(in srgb, var(--card-energy, #7bd5ef) 82%, transparent) 0%,
+    transparent 38%
+  );
+  opacity: var(--card-rim, 0);
+  mix-blend-mode: screen;
+}
+
+/* The line handed over by movement three. It is the hinge for every page and
+   it survives into the final frame. */
+.slogan-flip-spine {
+  position: absolute;
+  z-index: 3;
+  left: 50%;
+  top: var(--spine-y);
+  width: 74%;
+  height: 2px;
+  margin-left: -37%;
+  background: var(--flip-spine);
+  box-shadow: 0 0 34px 3px color-mix(in srgb, var(--flip-spine-glow) 62%, transparent);
+  transform: scaleX(var(--spine-scale, 1));
+  opacity: var(--spine-opacity, 1);
+  will-change: transform, opacity;
+}
+
+.slogan-flip-flash {
+  position: absolute;
+  z-index: 4;
+  inset: 0;
+  background: radial-gradient(
+    ellipse 82% 66% at 50% var(--spine-y),
+    rgba(255, 255, 255, 0.98) 0%,
+    rgba(255, 255, 255, 0) 74%
+  );
+  opacity: var(--flip-flash, 0);
+  mix-blend-mode: screen;
+}
+
+.slogan-flip-type {
+  position: absolute;
+  z-index: 5;
+  left: 0;
+  right: 0;
+  top: var(--spine-y);
+  transform: translateY(-124%) scale(var(--type-scale, 1.18));
+  opacity: var(--type-opacity, 0);
+  text-align: center;
+  will-change: transform, opacity;
+}
+.slogan-flip-type h1 {
+  margin: 0;
+  color: #fff;
+  font-size: 10.2vmin;
+  font-weight: 900;
+  letter-spacing: 0.24em;
+  text-indent: 0.24em;
+  line-height: 1.1;
+  text-shadow: 0 8px 60px rgba(0, 0, 0, 0.62);
+}
+.slogan-flip-type p {
+  margin: 2.6vmin 0 0;
+  color: rgba(255, 255, 255, 0.84);
+  font-size: 2.1vmin;
+  font-weight: 600;
+  letter-spacing: 0.38em;
+  text-indent: 0.38em;
+}
+
+/* One pass of light across the type as it locks up. */
+.slogan-flip-sweep {
+  position: absolute;
+  inset: -20% -10%;
+  background: linear-gradient(
+    100deg,
+    transparent 42%,
+    rgba(255, 255, 255, 0.75) 50%,
+    transparent 58%
+  );
+  transform: translateX(var(--sweep-x, -120%));
+  mix-blend-mode: overlay;
+  opacity: var(--sweep-opacity, 0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .slogan-flip-card { display: none; }
+  .slogan-flip-camera { transform: none; }
+  .slogan-flip { transition: opacity 200ms ease; }
+}

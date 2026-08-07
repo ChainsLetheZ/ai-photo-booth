@@ -1,84 +1,8 @@
-import assert from 'node:assert/strict';
-import {
-  inkPixelCount,
-  medianRunLength,
-  pickSloganTargets,
-  targetRequirement,
-  tileSizeFor,
-} from '../services/sloganTargets';
+﻿import assert from 'node:assert/strict';
 import { driftPlacement, hashUnit } from '../services/wallDrift';
 import { fitPoseToCell, leadFigure } from '../services/wallPoseFigure';
 import type { PoseTrace } from '../types';
 
-// A 20×20 mask with a solid 8×8 block in the upper-left quadrant.
-const WIDTH = 20;
-const HEIGHT = 20;
-const mask = new Uint8ClampedArray(WIDTH * HEIGHT);
-for (let y = 2; y < 10; y += 1) {
-  for (let x = 2; x < 10; x += 1) mask[y * WIDTH + x] = 255;
-}
-
-const targets = pickSloganTargets(mask, WIDTH, HEIGHT, 12, 1);
-assert.equal(targets.length, 12, 'Every tile must be given a target');
-assert.ok(
-  targets.every(
-    (point) =>
-      point.x >= 2 / WIDTH &&
-      point.x < 10 / WIDTH &&
-      point.y >= 2 / HEIGHT &&
-      point.y < 10 / HEIGHT,
-  ),
-  'Targets must land inside the covered glyph area',
-);
-assert.ok(
-  targets[0].y <= targets[targets.length - 1].y,
-  'Targets stay in scan order so capture order writes the slogan',
-);
-assert.equal(
-  pickSloganTargets(new Uint8ClampedArray(WIDTH * HEIGHT), WIDTH, HEIGHT, 12, 1)
-    .length,
-  0,
-  'An empty mask must yield no targets rather than invented positions',
-);
-
-assert.equal(inkPixelCount(mask), 64, 'Ink is every covered pixel, not a sample');
-assert.equal(
-  medianRunLength(mask, WIDTH, HEIGHT),
-  8,
-  'Stroke width is the median horizontal run of ink',
-);
-
-// The same phrase drawn twice as large needs the same number of photos: ink
-// area grows with the square of the scale and so does the largest usable tile.
-const small = targetRequirement(1000, 10, 100, 100, 100, 100, 1.5);
-const large = targetRequirement(4000, 20, 100, 100, 200, 200, 1.5);
-assert.equal(
-  small.minPhotos,
-  large.minPhotos,
-  'Photo count required by a phrase must not depend on how big it is drawn',
-);
-assert.ok(large.maxTilePx > small.maxTilePx, 'Bigger drawing, bigger tiles');
-
-// Fewer photos means bigger tiles, but never wider than a stroke.
-const requirement = targetRequirement(60000, 15, 960, 540, 1711, 919, 1.5);
-const sparse = tileSizeFor(requirement.inkAreaPx, 20, requirement.maxTilePx, 16);
-const dense = tileSizeFor(requirement.inkAreaPx, 200, requirement.maxTilePx, 16);
-assert.ok(sparse > dense, 'Fewer photos must grow the tiles');
-assert.ok(
-  sparse <= requirement.maxTilePx + 1e-9,
-  'A tile must never grow wider than the stroke allows',
-);
-assert.ok(dense >= 16, 'Tiles must not shrink below the readable floor');
-assert.equal(
-  tileSizeFor(requirement.inkAreaPx, 0, requirement.maxTilePx, 16),
-  16,
-  'No photos must not divide by zero',
-);
-assert.equal(
-  targetRequirement(1000, 0, 100, 100, 100, 100).minPhotos,
-  Number.POSITIVE_INFINITY,
-  'A phrase with no measurable stroke can never be drawn',
-);
 
 const trace = (
   overrides: Partial<Record<string, { x: number; y: number; score: number }>> = {},

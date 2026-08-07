@@ -1426,21 +1426,38 @@ button:focus-visible, a:focus-visible { outline: 3px solid #00a8e0; outline-offs
 
 /* V1 AI mirror inside the KV portal.
    The camera area is driven by the four variables below — retune the frame by
-   changing them, nothing else depends on the numbers. The KV reference frame
-   is 44% wide; this runs larger because the camera is the interface.
-   To drop in the real KV artwork instead of the CSS approximation:
-     .booth-v1 { --kv-image: url('/kv/kv.jpg'); --kv-art-opacity: 0; } */
+   changing them, nothing else depends on the numbers.
+
+   The finished KV artwork carries the logo, headline, event subtitle and the
+   glowing frame, so the CSS-drawn approximations of those are switched off
+   (--kv-art-opacity: 0, and .kv-logo / .kv-headline hidden below). The portal
+   variables place the live camera inside the artwork's frame; nudge them until
+   the video sits exactly in the frame's inner area. */
 .booth-v1 {
-  --kv-portal-width: 52%;
-  --kv-portal-height: 84%;
-  --kv-portal-x: 69%;
-  --kv-portal-y: 50%;
-  --kv-portal-radius: clamp(28px, 3vw, 54px);
+  --kv-image: url('/kv/booth-kv.png');
+  --kv-art-opacity: 0;
+  /* Measured from the artwork's frame opening (the cream inner fill) by a
+     robust per-row/column longest-cream-run scan, median across 500+ lines so
+     the bezel's bright inner rim and the rounded corners don't skew it: centre
+     72.8%/52.1%, 39.9%×76.6% of a 16:9 canvas. These map 1:1 to a 16:9 display;
+     a non-16:9 viewport would crop the cover background and pull them off, but
+     the venue screen is 16:9. */
+  --kv-portal-width: 39.9%;
+  --kv-portal-height: 76.6%;
+  --kv-portal-x: 72.8%;
+  --kv-portal-y: 52.1%;
+  --kv-portal-radius: clamp(24px, 2.6vw, 50px);
   width: 100%;
   height: 100%;
   min-height: 100%;
   overflow: hidden;
   background: #04070a;
+}
+
+/* Baked into the KV artwork now, so the CSS versions would only double them. */
+.booth-v1 .kv-logo,
+.booth-v1 .kv-headline {
+  display: none;
 }
 
 .kv-backdrop {
@@ -1575,12 +1592,11 @@ button:focus-visible, a:focus-visible { outline: 3px solid #00a8e0; outline-offs
   border-radius: var(--kv-portal-radius);
   isolation: isolate;
   background: #07141b;
+  /* The artwork already draws the glowing bezel; the camera only needs a thin
+     seam so its edge sits cleanly against the frame's inner fill. */
   box-shadow:
-    0 0 0 3px rgba(255,255,255,.88),
-    0 0 0 11px rgba(0,116,196,.5),
-    0 0 44px 10px rgba(0,152,226,.42),
-    0 0 130px 34px rgba(0,108,188,.24),
-    0 34px 90px rgba(0,0,0,.6);
+    inset 0 0 0 1px rgba(0,0,0,.35),
+    0 20px 60px rgba(0,0,0,.45);
 }
 
 @media (max-width: 900px) {

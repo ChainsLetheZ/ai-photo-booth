@@ -14,6 +14,13 @@ export const EVENT_SLOGAN = {
   secondary: 'Accelerate Innovation · Go Beyond Together',
 } as const;
 
+/**
+ * Finale-only copy: exactly eight characters, no space. The even spacing comes
+ * from the finale heading's own letter-spacing, so the two four-character
+ * phrases still read as a pair without a literal gap that would make this nine.
+ */
+export const FINAL_TAGLINE = '竞速智联共塑致远';
+
 export const ENERGY_CONFIG: Record<
   PrimaryEnergy,
   { number: string; label: string; description: string; color: string; accent: string }

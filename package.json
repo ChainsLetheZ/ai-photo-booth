@@ -7,7 +7,7 @@
     "dev": "tsx server.ts",
     "dev:https": "tsx server.ts --https",
     "models": "node scripts/fetch-mediapipe-models.mjs",
-    "test:rules": "tsx tests/interactionEngine.test.ts && tsx tests/bodyScaleProbe.test.ts && tsx tests/poseSanityFilter.test.ts && tsx tests/trackStability.test.ts && tsx tests/zoneDecision.test.ts && tsx tests/zoneBypass.test.ts && tsx tests/waveGesture.test.ts && tsx tests/demoMode.test.ts && tsx tests/simpleFlow.test.ts && tsx tests/handGesture.test.ts && tsx tests/viewportTransform.test.ts && tsx tests/poseTrace.test.ts && tsx tests/wallRepository.test.ts && tsx tests/pipelineHealth.test.ts && tsx tests/wallEffects.test.ts && tsx tests/sloganFlip.test.ts",
+    "test:rules": "tsx tests/interactionEngine.test.ts && tsx tests/bodyScaleProbe.test.ts && tsx tests/poseSanityFilter.test.ts && tsx tests/trackStability.test.ts && tsx tests/zoneDecision.test.ts && tsx tests/zoneBypass.test.ts && tsx tests/waveGesture.test.ts && tsx tests/demoMode.test.ts && tsx tests/simpleFlow.test.ts && tsx tests/handGesture.test.ts && tsx tests/viewportTransform.test.ts && tsx tests/poseTrace.test.ts && tsx tests/wallRepository.test.ts && tsx tests/pipelineHealth.test.ts && tsx tests/wallEffects.test.ts && tsx tests/wallFinaleSequence.test.ts",
     "lan": "bash scripts/start-https.sh",
     "cert": "node scripts/ensure-https-cert.mjs",
     "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",

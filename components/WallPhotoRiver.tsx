@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useLayoutEffect, useMemo, useRef } from 'react';
 import { wallConfig } from '../config/wallConfig';
 import { ENERGY_CONFIG } from '../constants';
 import type { WallEntry } from '../types';
@@ -19,10 +19,14 @@ const TILE_COUNT = columns * rows;
 export default function WallPhotoRiver({
   entries,
   active,
+  freeze = false,
 }: {
   entries: WallEntry[];
   active: boolean;
+  freeze?: boolean;
 }) {
+  const panRef = useRef<HTMLDivElement | null>(null);
+  const freezeAnimationRef = useRef<Animation | null>(null);
   const tiles = useMemo(() => {
     if (entries.length === 0) return [];
     return Array.from({ length: TILE_COUNT }, (_, index) => {
@@ -35,6 +39,49 @@ export default function WallPhotoRiver({
       };
     });
   }, [entries]);
+
+  useLayoutEffect(() => {
+    const pan = panRef.current;
+    freezeAnimationRef.current?.cancel();
+    freezeAnimationRef.current = null;
+    if (!pan || !freeze) return;
+
+    // Capture the composited position, then travel only a few more pixels with
+    // a strong ease-out. The river brakes without snapping to its keyframe.
+    const current = getComputedStyle(pan).transform;
+    const matrix = new DOMMatrixReadOnly(current === 'none' ? undefined : current);
+    const keyframes = [0, 0.25, 0.5, 0.75, 1].map((offset) => {
+      // p(t) = 2t - t²: constant negative acceleration, landing at zero
+      // velocity instead of relying on a browser-dependent easing curve.
+      const progress = 2 * offset - offset * offset;
+      return {
+        offset,
+        transform: new DOMMatrix([
+          matrix.a,
+          matrix.b,
+          matrix.c,
+          matrix.d,
+          matrix.e - 2.2 * progress,
+          matrix.f - 1.5 * progress,
+        ]).toString(),
+      };
+    });
+    const animation = pan.animate(
+      keyframes,
+      {
+        duration: 700,
+        easing: 'linear',
+        fill: 'forwards',
+      },
+    );
+    freezeAnimationRef.current = animation;
+    return () => {
+      animation.cancel();
+      if (freezeAnimationRef.current === animation) {
+        freezeAnimationRef.current = null;
+      }
+    };
+  }, [freeze]);
 
   if (tiles.length === 0) return null;
 
@@ -52,7 +99,10 @@ export default function WallPhotoRiver({
         } as React.CSSProperties
       }
     >
-      <div className={`wall-river-pan ${active ? 'is-panning' : ''}`}>
+      <div
+        ref={panRef}
+        className={`wall-river-pan ${active || freeze ? 'is-panning' : ''}`}
+      >
         {[0, 1, 2, 3].map((panel) => (
           <div
             className="wall-river-panel"
@@ -66,6 +116,7 @@ export default function WallPhotoRiver({
               <div
                 className="wall-river-tile"
                 key={`${panel}-${tile.key}`}
+                data-entry-id={tile.entry.id}
                 style={
                   {
                     left: `${(tile.column * 100) / columns}%`,

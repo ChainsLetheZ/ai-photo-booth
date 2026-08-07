@@ -7,14 +7,23 @@ import WallIntelligenceField, {
 import WallPhotoRiver from '../components/WallPhotoRiver';
 import WallPoseFigure from '../components/WallPoseFigure';
 import { wallConfig } from '../config/wallConfig';
-import { ENERGY_CONFIG, EVENT_SLOGAN } from '../constants';
+import { ENERGY_CONFIG, FINAL_TAGLINE } from '../constants';
 import {
   listWallEntries,
   subscribeToWallEntries,
 } from '../services/portraitStore';
 import { driftPlacement } from '../services/wallDrift';
-import { planAssembly } from '../services/sloganTargets';
 import { leadFigure } from '../services/wallPoseFigure';
+import WallFinaleSequence, {
+  type FinaleStartMap,
+} from '../components/WallFinaleSequence';
+import {
+  FINALE_CARD_COUNT,
+  finaleCardWidthPx,
+  finaleDurationMs,
+  nextFinalePhase,
+  type FinalePhase,
+} from '../services/wallFinaleSequence';
 import type { WallEntry } from '../types';
 
 /**
@@ -31,13 +40,70 @@ type JoinPhase = WallIntelligencePhase;
 type Formation = 'scroll' | 'drift' | 'grid';
 
 const PREVIEW_SIGNAL_COUNT = 12;
-const DEMO_ASSEMBLY_SIGNAL_COUNT = wallConfig.capacity;
 const PREVIEW_ENERGIES = [
   ENERGY_CONFIG.Intelligence.accent,
   ENERGY_CONFIG.Motion.accent,
   ENERGY_CONFIG.Life.accent,
   ENERGY_CONFIG.Impact.accent,
 ] as const;
+
+function captureFinaleStarts(
+  stage: HTMLElement | null,
+  cardCount: number,
+): FinaleStartMap {
+  if (!stage || cardCount <= 0) return {};
+  const stageRect = stage.getBoundingClientRect();
+  const finalCardWidth = finaleCardWidthPx(
+    stageRect.width,
+    stageRect.height,
+    cardCount,
+  );
+  if (finalCardWidth <= 0) return {};
+
+  const best = new Map<
+    string,
+    { score: number; xUnit: number; yUnit: number; scale: number }
+  >();
+  stage
+    .querySelectorAll<HTMLImageElement>('.wall-river-tile[data-entry-id] img')
+    .forEach((image) => {
+      const tile = image.closest<HTMLElement>('.wall-river-tile');
+      const id = tile?.dataset.entryId;
+      if (!id) return;
+      const rect = image.getBoundingClientRect();
+      const visibleWidth = Math.max(
+        0,
+        Math.min(rect.right, stageRect.right) - Math.max(rect.left, stageRect.left),
+      );
+      const visibleHeight = Math.max(
+        0,
+        Math.min(rect.bottom, stageRect.bottom) - Math.max(rect.top, stageRect.top),
+      );
+      const visibleArea = visibleWidth * visibleHeight;
+      if (visibleArea <= 0) return;
+      const x = rect.left + rect.width / 2;
+      const y = rect.top + rect.height / 2;
+      const distanceFromCenter = Math.hypot(
+        x - (stageRect.left + stageRect.width / 2),
+        y - (stageRect.top + stageRect.height / 2),
+      );
+      const score = visibleArea - distanceFromCenter * 0.1;
+      if ((best.get(id)?.score ?? -Infinity) >= score) return;
+      best.set(id, {
+        score,
+        xUnit: Math.min(1, Math.max(0, (x - stageRect.left) / stageRect.width)),
+        yUnit: Math.min(1, Math.max(0, (y - stageRect.top) / stageRect.height)),
+        scale: Math.min(4, Math.max(0.55, rect.width / finalCardWidth)),
+      });
+    });
+
+  return Object.fromEntries(
+    [...best].map(([id, { xUnit, yUnit, scale }]) => [
+      id,
+      { xUnit, yUnit, scale },
+    ]),
+  );
+}
 
 function upsert(records: WallEntry[], entry: WallEntry) {
   return [...records.filter((item) => item.id !== entry.id), entry]
@@ -95,7 +161,10 @@ export default function WallPage() {
   );
   const [joinPhases, setJoinPhases] = useState<Record<string, JoinPhase>>({});
   const [formation, setFormation] = useState<Formation>('scroll');
-  const [assembled, setAssembled] = useState(false);
+  const [finale, setFinale] = useState<FinalePhase | null>(null);
+  const [finaleEntries, setFinaleEntries] = useState<WallEntry[]>([]);
+  const [finaleStarts, setFinaleStarts] = useState<FinaleStartMap>({});
+  const assembled = finale !== null;
   const stageRef = useRef<HTMLElement>(null);
   const knownIdsRef = useRef(new Set<string>());
   const joinTimersRef = useRef<number[]>([]);
@@ -292,55 +361,45 @@ export default function WallPage() {
     };
   }, [driftByCode, formation, joinPhases, records, slots]);
 
-  /** What the room has earned from real portraits. */
-  const decision = useMemo(
-    () =>
-      planAssembly(records.length, layoutWidth, layoutHeight, [
-        wallConfig.assemble.targets[1],
-      ]),
-    [records.length],
-  );
-  const livePlan = decision.ready ? decision.plan : null;
-  const demoDecision = useMemo(
-    () =>
-      planAssembly(
-        DEMO_ASSEMBLY_SIGNAL_COUNT,
-        layoutWidth,
-        layoutHeight,
-        [wallConfig.assemble.targets[1]],
-      ),
-    [],
-  );
-  const demoPlan = demoDecision.ready ? demoDecision.plan : null;
-  const plan = livePlan ?? demoPlan;
-  const demoAssembling = assembled && !livePlan;
-
   /**
-   * Targets are handed out in capture order, so the phrase is written in the
-   * order the room walked up to the booth rather than at random.
+   * `freeze` belongs to the wall's own tiles — they fade on the opacity
+   * transition below, nothing here drives them. Every later phase advances on
+   * its own uninterrupted clock inside `WallFinaleSequence`; this state only
+   * labels the current beat and controls when the live river may fade. The
+   * `tagline` state is the end and does not advance, while the component still
+   * completes its blur-to-sharp reveal and then naturally holds the last frame.
    */
-  const assembly = useMemo(() => {
-    if (!assembled || !plan) return null;
-    if (!livePlan) {
-      return new Map(
-        slots.slice(0, DEMO_ASSEMBLY_SIGNAL_COUNT).map((slot, index) => [
-          slot.shortCode,
-          { target: plan.targets[index], order: index },
-        ]),
-      );
-    }
-    const ordered = [...records].sort(
-      (left, right) => left.createdAt - right.createdAt,
+  useEffect(() => {
+    if (!finale) return;
+    const next = nextFinalePhase(finale);
+    if (!next) return;
+    const timer = window.setTimeout(
+      () => setFinale(next),
+      finaleDurationMs(finale),
     );
-    return new Map(
-      ordered.map((entry, index) => [
-        entry.shortCode,
-        { target: plan.targets[index], order: index },
-      ]),
-    );
-  }, [assembled, livePlan, plan, records, slots]);
+    return () => window.clearTimeout(timer);
+  }, [finale]);
 
   const riverActive = !assembled && formation === 'scroll' && records.length > 0;
+  const toggleFinale = useCallback(() => {
+    if (finale) {
+      setFinale(null);
+      setFinaleEntries([]);
+      setFinaleStarts({});
+      return;
+    }
+    const snapshot = [...records];
+    setFinaleEntries(snapshot);
+    setFinaleStarts(
+      riverActive
+        ? captureFinaleStarts(
+            stageRef.current,
+            Math.min(FINALE_CARD_COUNT, snapshot.length),
+          )
+        : {},
+    );
+    setFinale('freeze');
+  }, [finale, records, riverActive]);
 
   return (
     <main className="wall-shell">
@@ -351,7 +410,11 @@ export default function WallPage() {
         }`}
         ref={stageRef}
       >
-        <WallPhotoRiver entries={records} active={riverActive} />
+        <WallPhotoRiver
+          entries={records}
+          active={riverActive || finale === 'freeze'}
+          freeze={assembled}
+        />
 
         {activeJoin && (
           <div
@@ -403,62 +466,28 @@ export default function WallPage() {
               energy={ENERGY_CONFIG[activeJoin.entry.primaryEnergy].accent}
             />
           )}
-          {assembled && plan && (
-            <div
-              className="wall-slogan-ink"
-              style={
-                {
-                  '--wall-slogan-font-size': `${
-                    Math.min(
-                      120,
-                      Math.floor(
-                        wallConfig.assemble.sampleWidth /
-                          Math.max(EVENT_SLOGAN.primary.length * 0.85, 6),
-                      ),
-                    ) *
-                    (layoutWidth / wallConfig.assemble.sampleWidth)
-                  }px`,
-                } as React.CSSProperties
-              }
-              aria-hidden="true"
-            >
-              {EVENT_SLOGAN.primary}
-            </div>
-          )}
           {slots.map((slot) => {
             const entry = entriesByCode.get(slot.shortCode);
-            const preview =
-              !entry &&
-              (slot.index < PREVIEW_SIGNAL_COUNT ||
-                (demoAssembling && slot.index < DEMO_ASSEMBLY_SIGNAL_COUNT));
+            const preview = !entry && slot.index < PREVIEW_SIGNAL_COUNT;
             const motion = entry ? entryMotion(entry.id) : null;
             const phase = entry ? joinPhases[entry.id] : undefined;
             const figure =
               entry && (phase === 'perception' || phase === 'settling')
                 ? leadFigure(entry.poseTrace)
                 : null;
-            const flight = assembly?.get(slot.shortCode);
             const energy = entry
               ? ENERGY_CONFIG[entry.primaryEnergy]
               : undefined;
-            const { flightMs, staggerMs } = wallConfig.assemble;
-            const tileSizePx = plan?.tileSizePx ?? wallConfig.assemble.minTilePx;
             const { returnMs, amplitudePx } = wallConfig.drift;
             const drift = entry ? driftByCode.get(entry.shortCode) : undefined;
-            // The button wins over everything. Otherwise only the register is
-            // laid out on the grid; tiles hold their floating positions under
-            // the river too, so surfacing from it is a fade and not a jump.
+            // The register never moves for the finale — it just fades out from
+            // wherever it already was, on the transition below. Only the wall's
+            // own idle formations (river / drift / grid) place a tile.
             const adrift = Boolean(
               !assembled && drift && formation !== 'grid',
             );
-            const placed = flight
-              ? {
-                  left: flight.target.x * layoutWidth - tileSizePx / 2,
-                  top: flight.target.y * layoutHeight - tileSizePx / 2,
-                  width: tileSizePx,
-                  height: tileSizePx,
-                }
-              : adrift && drift
+            const placed =
+              adrift && drift
                 ? {
                     left: drift.x * layoutWidth - cellWidthPx / 2,
                     top: drift.y * layoutHeight - cellHeightPx / 2,
@@ -482,7 +511,7 @@ export default function WallPage() {
                     : ''
                 } ${phase ? `is-joining is-${phase}` : ''} ${
                   entry && (entry.personCount ?? 1) > 1 ? 'is-group' : ''
-                } ${assembled ? (flight ? 'is-flying' : 'is-dimmed') : ''} ${
+                } ${assembled ? 'is-dimmed' : ''} ${
                   adrift ? 'is-adrift' : ''
                 } ${
                   !assembled &&
@@ -504,8 +533,11 @@ export default function WallPage() {
                     top: `${placed.top}px`,
                     width: `${placed.width}px`,
                     height: `${placed.height}px`,
-                    transition: assembled
-                      ? `left ${flightMs}ms cubic-bezier(0.22,1,0.36,1) ${flight ? flight.order * staggerMs : 0}ms, top ${flightMs}ms cubic-bezier(0.22,1,0.36,1) ${flight ? flight.order * staggerMs : 0}ms, width ${flightMs}ms ease, height ${flightMs}ms ease, opacity 600ms ease`
+                    // The register itself never moves for the finale — it only
+                    // fades, on the same clock as the wall's own `freeze`, so
+                    // the fade and the sequence's arrival read as one motion.
+                    transition: finale
+                      ? `opacity ${finaleDurationMs('freeze')}ms ease`
                       : `left ${returnMs}ms cubic-bezier(0.22,1,0.36,1), top ${returnMs}ms cubic-bezier(0.22,1,0.36,1), opacity ${returnMs}ms ease`,
                     '--wall-drift-amplitude': `${amplitudePx}px`,
                     '--wall-drift-period': drift
@@ -609,18 +641,22 @@ export default function WallPage() {
           </aside>
         )}
 
-        {assembled && plan && (
-          <div className="wall-assemble-caption">
-            <p>{EVENT_SLOGAN.primary}</p>
-            <span>{EVENT_SLOGAN.secondary}</span>
-          </div>
-        )}
-
-        {demoAssembling && (
-          <div className="wall-demo-assembly-badge">
-            DEMO MODE · {DEMO_ASSEMBLY_SIGNAL_COUNT} SYNTHETIC SIGNALS
-          </div>
-        )}
+        {/* individual presence → collective convergence → AI perception →
+            distilled message. The sentence arrives and stays; there is no
+            caption repeating it underneath, the wall is already showing it.
+            `pointer-events: none` matters: this layer covers the operator's
+            own controls, and must never intercept a click meant for them. */}
+        <div
+          style={{ position: 'absolute', inset: 0, zIndex: 6, pointerEvents: 'none' }}
+          aria-hidden="true"
+        >
+          <WallFinaleSequence
+            entries={finale ? finaleEntries : records}
+            active={finale !== null}
+            tagline={FINAL_TAGLINE}
+            startPositions={finaleStarts}
+          />
+        </div>
 
         <div className="wall-layout-status">
           <span>
@@ -628,23 +664,19 @@ export default function WallPage() {
             {connected ? 'LIVE LINK' : 'RECONNECTING'}
           </span>
           <span>{records.length.toString().padStart(3, '0')} / 200 STORED</span>
-          {/* Real portraits win. Synthetic signals complete the same finale
-              while the live wall is still below the required photo count. */}
+          {/* The finale never refuses. Legibility no longer depends on how many
+              photos the room has produced, so there is no minimum to meet. */}
           <button
             type="button"
             className="wall-assemble-button"
-            onClick={() => setAssembled((current) => !current)}
+            onClick={toggleFinale}
             title={
-              plan
-                ? `${livePlan ? 'LIVE' : 'DEMO'} · ${plan.primary} · ${Math.round(plan.tileSizePx)}px tiles`
-                : undefined
+              finale
+                ? `FINALE · ${finale.toUpperCase()}`
+                : `${records.length} portraits into ${FINAL_TAGLINE}`
             }
           >
-            {assembled
-              ? 'RETURN TO WALL'
-              : livePlan
-                ? 'ASSEMBLE 8-CHAR FINALE'
-                : 'PREVIEW 8-CHAR ASSEMBLY'}
+            {finale ? 'RETURN TO WALL' : 'RUN FINALE'}
           </button>
         </div>
       </section>

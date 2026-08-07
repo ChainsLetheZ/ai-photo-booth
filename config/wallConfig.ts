@@ -60,35 +60,19 @@ export const wallConfig = {
     // How long the register stays formed after the newcomer has settled.
     holdMs: 4000,
   },
-  // Photos flying into the slogan. Operator-triggered only — never on a timer
-  // or a photo count; it has to land when the room is watching.
+  // The finale. Operator-triggered only — never on a timer or a photo count;
+  // it has to land when the room is watching.
+  //
+  // The photos no longer draw the phrase. They gather into a collective wall,
+  // receive one restrained perception sweep, then leave the frame for type.
+  // Everything that used to live here —
+  // glyph rasterisation, ink area, stroke width, the minimum-photo ladder —
+  // existed to answer "can these photos draw this?", which is a question with
+  // no good answer: a tile large enough to carry a face is wider than a CJK
+  // stroke. The phrase now comes from `EVENT_SLOGAN` and always reads.
   assemble: {
-    sampleWidth: 960,
-    sampleHeight: 540,
-    sampleStep: 5,
-    alphaThreshold: 140,
-    // A tile wider than a stroke turns the glyph into a blob, so this caps how
-    // far tiles may grow when the photo count is low. Scaling the whole slogan
-    // down does not help: ink area and stroke width shrink together, so the
-    // number of photos a phrase needs is a property of the phrase, not its size.
-    strokeTileRatio: 1.5,
-    minTilePx: 16,
-    flightMs: 1600,
+    // Reserved for any future per-card gather offset.
     staggerMs: 14,
-    // Richest first. The wall drops to a shorter phrase rather than draw a
-    // long one out of too few photos. Measured on this machine's fonts, the
-    // ladder needs roughly 127 / 81 / 43 / 21 / 14 photos — but the numbers are
-    // recomputed at run time, because the venue machine may substitute fonts.
-    targets: [
-      {
-        primary: '竞速智联 共塑致远',
-        secondary: 'Accelerate Innovation · Go Beyond Together',
-      },
-      { primary: '竞速智联 共塑致远', secondary: '' },
-      { primary: '竞速智联', secondary: '' },
-      { primary: 'UX ML4', secondary: '' },
-      { primary: 'ML4', secondary: '' },
-    ],
   },
   reconnect: {
     initialDelayMs: 750,

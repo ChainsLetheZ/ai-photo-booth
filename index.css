@@ -2258,3 +2258,329 @@ button:focus-visible, a:focus-visible { outline: 3px solid #00a8e0; outline-offs
     animation: none;
   }
 }
+
+/* Blink-led booth flow. Character artwork remains video-owned; these slots are
+   temporary mounting points for the supplied animation clips. */
+.blink-viewfinder {
+  position: absolute;
+  z-index: 4;
+  top: 17%;
+  left: 24%;
+  width: 52%;
+  height: 65%;
+  pointer-events: none;
+  transition: opacity .3s ease;
+}
+
+.blink-viewfinder.is-complete { opacity: .35; }
+
+.blink-viewfinder .corner {
+  position: absolute;
+  width: 38px;
+  height: 38px;
+  border-color: rgba(255,255,255,.86);
+  filter: drop-shadow(0 2px 8px rgba(0,0,0,.45));
+}
+
+.blink-viewfinder .top-left {
+  top: 0;
+  left: 0;
+  border-top: 3px solid;
+  border-left: 3px solid;
+}
+
+.blink-viewfinder .top-right {
+  top: 0;
+  right: 0;
+  border-top: 3px solid;
+  border-right: 3px solid;
+}
+
+.blink-viewfinder .bottom-left {
+  bottom: 0;
+  left: 0;
+  border-bottom: 3px solid;
+  border-left: 3px solid;
+}
+
+.blink-viewfinder .bottom-right {
+  right: 0;
+  bottom: 0;
+  border-right: 3px solid;
+  border-bottom: 3px solid;
+}
+
+.blink-slot {
+  position: absolute;
+  z-index: 7;
+  bottom: 3.5%;
+  display: flex;
+  width: 18%;
+  height: 23%;
+  min-width: 84px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 0 6px 10px;
+  border: 1px dashed rgba(255,255,255,.5);
+  background: linear-gradient(180deg, rgba(6,18,26,.08), rgba(6,18,26,.7));
+  color: rgba(255,255,255,.72);
+  text-align: center;
+  pointer-events: none;
+}
+
+.blink-slot span,
+.blink-slot strong {
+  position: relative;
+  z-index: 1;
+}
+
+.blink-slot span {
+  font-size: 7px;
+  line-height: 1.35;
+}
+
+.blink-slot strong {
+  margin-top: 4px;
+  color: #fff;
+  font-size: 8px;
+  letter-spacing: 0;
+}
+
+.blink-slot.state-countdown span,
+.blink-slot.state-countdown strong { opacity: 0; }
+
+.blink-left { left: 1.5%; }
+
+.blink-right {
+  right: 1.5%;
+  opacity: 0;
+  transform: translateX(42%);
+  transition: opacity .28s ease, transform .38s ease;
+}
+
+.blink-right.is-visible {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+.blink-dialogue {
+  position: absolute;
+  z-index: 12;
+  top: 3.5%;
+  right: 2.5%;
+  width: max-content;
+  max-width: 68%;
+  min-height: 0;
+  padding: 13px 16px;
+  border: 1px solid rgba(255,255,255,.72);
+  border-radius: 8px;
+  background: rgba(255,255,255,.94);
+  box-shadow: 0 12px 34px rgba(0,0,0,.3);
+  color: #101820;
+  animation: blinkDialogueIn .24s ease-out both;
+}
+
+.blink-dialogue::after {
+  display: none;
+}
+
+.blink-dialogue.speaker-left,
+.blink-dialogue.speaker-right {
+  right: 2.5%;
+  left: auto;
+}
+
+/* Keep the upper-right photo-wall destination visible beside the result copy. */
+.blink-dialogue.state-result { right: 14%; }
+
+.blink-dialogue p {
+  margin: 0;
+  font-size: clamp(16px, 1.25vw, 21px);
+  font-weight: 700;
+  line-height: 1.35;
+  letter-spacing: 0;
+  text-wrap: balance;
+}
+
+.gesture-task {
+  display: flex;
+  width: 100%;
+  min-height: 42px;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(16,24,32,.14);
+}
+
+.gesture-task span {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  flex: 0 0 34px;
+  border-radius: 50%;
+  background: #e20015;
+  color: #fff;
+  font-size: 20px;
+  line-height: 1;
+}
+
+.gesture-task strong {
+  font-size: 14px;
+  letter-spacing: 0;
+}
+
+.gesture-task.is-success span { background: #00884a; }
+
+.blink-countdown {
+  position: absolute;
+  z-index: 18;
+  top: 50%;
+  left: 50%;
+  color: #fff;
+  font-size: clamp(112px, 15vw, 210px);
+  font-weight: 700;
+  line-height: 1;
+  text-shadow: 0 8px 40px rgba(0,0,0,.52);
+  transform: translate(-50%, -50%);
+  animation: blinkCountdownIn .35s ease-out both;
+}
+
+.camera-flash {
+  position: absolute;
+  z-index: 30;
+  inset: 0;
+  pointer-events: none;
+  background: #fff;
+  animation: cameraFlash .42s ease-out both;
+}
+
+.photo-paper {
+  position: absolute;
+  z-index: 20;
+  left: 6%;
+  top: 10%;
+  width: 88%;
+  height: 80%;
+  padding: 9px 9px 24px;
+  background: #fff;
+  box-shadow: 0 18px 42px rgba(0,0,0,.52);
+  transform-origin: center;
+}
+
+.photo-paper img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.photo-paper.is-developing { animation: photoDevelop .6s ease-out both; }
+.photo-paper.is-flying { animation: photoFly 1.8s cubic-bezier(.3,.7,.25,1) .4s both; }
+
+.photo-wall-target {
+  position: absolute;
+  z-index: 10;
+  top: 11%;
+  right: 4%;
+  display: grid;
+  width: 82px;
+  justify-items: end;
+  gap: 7px;
+  color: rgba(255,255,255,.78);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+.photo-wall-target i {
+  width: 62px;
+  height: 42px;
+  border: 2px solid rgba(255,255,255,.7);
+  box-shadow: 0 0 24px rgba(89,224,255,.22);
+}
+
+.booth-error {
+  position: absolute;
+  z-index: 20;
+  left: 50%;
+  bottom: 3%;
+  display: flex;
+  max-width: calc(100% - 40px);
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid rgba(255,255,255,.28);
+  border-radius: 6px;
+  background: rgba(16,24,32,.82);
+  color: rgba(255,255,255,.82);
+  font-size: 11px;
+  transform: translateX(-50%);
+}
+
+.booth-error button {
+  border: 0;
+  background: #e20015;
+  color: #fff;
+  padding: 7px 10px;
+  cursor: pointer;
+}
+
+@keyframes blinkDialogueIn {
+  from { opacity: 0; transform: scale(.96) translateY(6px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+@keyframes blinkCountdownIn {
+  from { opacity: 0; transform: translate(-50%, -50%) scale(1.35); }
+  to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+}
+
+@keyframes cameraFlash {
+  0% { opacity: 0; }
+  18% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+@keyframes photoDevelop {
+  from { opacity: 0; transform: translate(-38%, 48%) scale(.18) rotate(-7deg); }
+  to { opacity: 1; transform: translateY(0) scale(1) rotate(-2deg); }
+}
+
+@keyframes photoFly {
+  0% { transform: translate(0, 0) scale(1) rotate(-2deg); }
+  46% { transform: translate(22%, -56%) scale(.66) rotate(4deg); }
+  100% { transform: translate(48%, -48%) scale(.12) rotate(8deg); opacity: .16; }
+}
+
+@media (max-width: 900px) {
+  .blink-dialogue { top: 3%; width: max-content; max-width: 72%; }
+  .blink-slot { bottom: 4%; height: 34%; }
+  .photo-paper { top: 59%; }
+}
+
+@media (max-width: 560px) {
+  .blink-dialogue {
+    top: 2.5%;
+    right: 3%;
+    width: max-content;
+    max-width: 82%;
+    padding: 11px 13px;
+  }
+  .blink-dialogue p { font-size: 16px; }
+  .blink-dialogue.speaker-left,
+  .blink-dialogue.speaker-right { right: 3%; }
+  .blink-slot { width: 31%; min-width: 0; }
+  .blink-viewfinder { left: 18%; width: 64%; }
+  .gesture-task { min-height: 38px; }
+  .gesture-task span { width: 32px; height: 32px; flex-basis: 32px; font-size: 18px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .blink-dialogue,
+  .blink-countdown,
+  .camera-flash,
+  .photo-paper { animation: none; }
+}

@@ -1,3 +1,5 @@
+export type SimpleGestureTarget = 'wave' | 'victory' | 'thumbs-up';
+
 export const simpleMode = {
   enabled: true,
 
@@ -11,11 +13,13 @@ export const simpleMode = {
   handRaisedBoostPerSec: 0.6,
   gestureConfirmFillsRing: true,
   iSeeYouMs: 800,
+  positionGuidanceMs: 1200,
   subCopyRotateMs: 2500,
 
-  lockedFeedbackMs: 600,
+  lockedFeedbackMs: 2200,
 
   countdownSeconds: 3,
+  photoPreviewMs: 3200,
   resultHoldMs: 5000,
   cooldownMs: 3000,
 

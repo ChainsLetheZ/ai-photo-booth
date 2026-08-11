@@ -7,11 +7,7 @@ import {
   effectiveInteractionConfig,
   interactionConfig,
 } from '../config/interactionConfig';
-import {
-  simpleMode,
-  simpleModeGesture,
-  type SimpleGestureTarget,
-} from '../config/simpleMode';
+import { simpleMode, simpleModeGesture } from '../config/simpleMode';
 import {
   evaluateRaiseArm,
   type GestureRuleResult,
@@ -211,7 +207,6 @@ export class InteractionController {
   private initiatorGesture: 'raise' | 'wave' | null = null;
   private initiatorWaveLastCrossingAt: number | null = null;
   private confirmedGesture: 'raise' | 'wave' | null = null;
-  private simpleGestureTarget: SimpleGestureTarget = 'wave';
   private stability: StabilityResult = EMPTY_STABILITY;
   private initiatorId: string | null = null;
   private gestureConfirmedAt: number | null = null;
@@ -789,15 +784,20 @@ export class InteractionController {
           (second[1].lastCrossingAt ?? Number.POSITIVE_INFINITY),
       )[0];
     const waveState = waveCandidate?.[1] ?? null;
-    const handGestureConfirmed = Boolean(
-      this.handGestureSnapshot?.confirmed &&
-        ((this.simpleGestureTarget === 'victory' &&
-          this.handGestureSnapshot.category === 'Victory') ||
-          (this.simpleGestureTarget === 'thumbs-up' &&
-            this.handGestureSnapshot.category === 'Thumb_Up')),
-    );
+    // The booth deliberately accepts any of its supported actions. The
+    // on-screen prompt is guidance, not a restriction: a wave, raised arm,
+    // victory sign or thumbs-up may start the same capture flow.
+    const handGestureConfirmed = Boolean(this.handGestureSnapshot?.confirmed);
+    const handGestureProgress = this.handGestureSnapshot?.category
+      ? Math.min(
+          1,
+          this.handGestureSnapshot.stableCount /
+            Math.max(1, this.handGestureSnapshot.stableTarget),
+        )
+      : 0;
     const gestureConfirmed = Boolean(
-      (this.simpleGestureTarget === 'wave' && waveState?.confirmed) ||
+      raiseStability.confirmed ||
+        waveState?.confirmed ||
         handGestureConfirmed,
     );
     const initiatorId =
@@ -816,20 +816,15 @@ export class InteractionController {
       confirmed: gestureConfirmed,
       progress: gestureConfirmed
         ? 1
-        : this.simpleGestureTarget === 'wave'
-          ? waveState?.progress ?? 0
-          : this.handGestureSnapshot?.category ===
-                (this.simpleGestureTarget === 'victory' ? 'Victory' : 'Thumb_Up')
-            ? Math.min(
-                1,
-                this.handGestureSnapshot.stableCount /
-                  Math.max(1, this.handGestureSnapshot.stableTarget),
-              )
-            : 0,
+        : Math.max(
+            raiseStability.progress,
+            waveState?.progress ?? 0,
+            handGestureProgress,
+          ),
     };
     this.gesture = {
       requiredPrimitive: waveState ? 'WAVE' : 'RAISE_ONE_ARM',
-      satisfied: gestureConfirmed,
+      satisfied: gestureConfirmed || raisedHand.raised,
       matchScore: Math.max(
         raiseResult.matchScore,
         waveState?.progress ?? 0,
@@ -845,7 +840,7 @@ export class InteractionController {
     };
     this.simpleInput = {
       personDetected: this.simpleInput.personDetected,
-      handRaised: false,
+      handRaised: raisedHand.raised,
       handSide: raisedHand.side,
       gestureConfirmed,
     };
@@ -853,17 +848,9 @@ export class InteractionController {
 
   private handleHandGesture = (snapshot: HandGestureSnapshot) => {
     this.handGestureSnapshot = snapshot;
-    const targetCategory =
-      this.simpleGestureTarget === 'victory'
-        ? 'Victory'
-        : this.simpleGestureTarget === 'thumbs-up'
-          ? 'Thumb_Up'
-          : null;
     if (
       simpleMode.enabled &&
       snapshot.confirmed &&
-      targetCategory !== null &&
-      snapshot.category === targetCategory &&
       this.simpleFlowSnapshot.state === 'PERCEIVING'
     ) {
       this.simpleInput = {
@@ -873,15 +860,6 @@ export class InteractionController {
       this.advanceSimpleFlow(performance.now());
     }
   };
-
-  setSimpleGestureTarget(target: SimpleGestureTarget) {
-    if (!simpleMode.enabled || this.simpleFlowSnapshot.state !== 'IDLE') return;
-    this.simpleGestureTarget = target;
-    this.simpleInput.gestureConfirmed = false;
-    this.stabilityTracker.reset();
-    this.handGestureService.reset();
-    this.resetWaveTracking();
-  }
 
   private updateWaveStates(
     timestamp: number,

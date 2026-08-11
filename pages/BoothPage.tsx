@@ -14,10 +14,7 @@ import {
   effectiveInteractionConfig,
   interactionConfig,
 } from '../config/interactionConfig';
-import {
-  simpleMode,
-  type SimpleGestureTarget,
-} from '../config/simpleMode';
+import { simpleMode } from '../config/simpleMode';
 import { ENERGY_CONFIG, EVENT } from '../constants';
 import PerceptionDebugOverlay from '../debug/PerceptionDebugOverlay';
 import {
@@ -38,39 +35,22 @@ import {
 import type { BehaviorReading, PortraitRecord, PoseTrace } from '../types';
 
 interface GestureTask {
-  id: SimpleGestureTarget;
   icon: string;
   name: string;
   lines: [string, string];
 }
 
-const GESTURE_TASKS: GestureTask[] = [
-  {
-    id: 'wave',
-    icon: '👋',
-    name: '挥挥手',
-    lines: ['一起挥挥手，', '跟未来打个招呼！'],
-  },
-  {
-    id: 'victory',
-    icon: '✌',
-    name: '比个耶',
-    lines: ['未来姿势加载中——', '一起比个耶！'],
-  },
-  {
-    id: 'thumbs-up',
-    icon: '👍',
-    name: '点个赞',
-    lines: ['给未来一个赞！', '一起竖起大拇指！'],
-  },
-];
+const GESTURE_TASK: GestureTask = {
+  icon: '✋',
+  name: '任选一个手势',
+  lines: ['挥手、举手、比耶或点赞，', '任选一个开始吧！'],
+};
 
-function pickGestureTask(previous?: SimpleGestureTarget) {
-  const choices = previous
-    ? GESTURE_TASKS.filter((task) => task.id !== previous)
-    : GESTURE_TASKS;
-  return choices[Math.floor(Math.random() * choices.length)];
-}
+const BOOTH_VIDEO = {
+  ready: '/videos/01-ready.mp4',
+  gestureDemo: '/videos/02-gesture-demo.mp4',
+  captureStart: '/videos/03-capture-start.mp4',
+} as const;
 
 function makeFallbackCapture() {
   const canvas = document.createElement('canvas');
@@ -96,16 +76,12 @@ export default function BoothPage() {
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
   const [capturedPoseTrace, setCapturedPoseTrace] = useState<PoseTrace[]>([]);
   const [portrait, setPortrait] = useState<PortraitRecord | null>(null);
-  const [gestureTask, setGestureTask] = useState<GestureTask>(() =>
-    pickGestureTask(),
-  );
   const [error, setError] = useState('');
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const cameraRef = useRef<BrowserCameraService | null>(null);
   const controllerRef = useRef<InteractionController | null>(null);
   const generationStartedRef = useRef(false);
-  const previousStateRef = useRef<string>('IDLE');
   const debug = useMemo(
     () => new URLSearchParams(window.location.search).get('debug') === 'true',
     [],
@@ -136,7 +112,6 @@ export default function BoothPage() {
     });
     cameraRef.current = camera;
     controllerRef.current = controller;
-    controller.setSimpleGestureTarget(gestureTask.id);
     setEngine(controller.getSnapshot());
 
     let cancelled = false;
@@ -170,15 +145,6 @@ export default function BoothPage() {
       camera.stop();
     };
   }, [debug]);
-
-  useEffect(() => {
-    const previous = previousStateRef.current;
-    previousStateRef.current = state;
-    if (state !== 'IDLE' || previous === 'IDLE') return;
-    const nextTask = pickGestureTask(gestureTask.id);
-    setGestureTask(nextTask);
-    controllerRef.current?.setSimpleGestureTarget(nextTask.id);
-  }, [gestureTask.id, state]);
 
   useEffect(() => {
     if (!simpleMode.enabled || state !== 'IDLE') return;
@@ -353,27 +319,13 @@ export default function BoothPage() {
     (state === 'PERCEIVING' && phaseHeldMs >= taskStartsAt) ||
     lockedConfirming ||
     rightExiting;
-  const leftVideoKey =
-    state === 'IDLE'
-      ? 'left-idle'
-      : state === 'PERCEIVING'
-        ? phaseHeldMs < taskStartsAt
-          ? 'left-notice'
-          : 'left-camera-up'
-        : state === 'CAPTURE' || state === 'CREATE'
-          ? capturedImage
-            ? 'left-photo-out'
-            : 'left-flash'
-          : state === 'RESULT'
-            ? 'left-photo-out'
-            : 'left-hold';
-  const rightVideoKey = rightExiting
-    ? 'right-exit'
-    : state === 'PERCEIVING'
-      ? taskPhaseMs < simpleMode.iSeeYouMs
-        ? 'right-enter'
-        : 'right-gesture'
-      : 'right-success';
+  // Mount the capture animation with a new key so it always restarts when a
+  // fresh photo session reaches the 3-2-1 countdown. The ready loop owns the
+  // left slot at every other point in the experience.
+  const leftVideoSrc =
+    state === 'COUNTDOWN' || state === 'CAPTURE' || state === 'CREATE'
+      ? BOOTH_VIDEO.captureStart
+      : BOOTH_VIDEO.ready;
   const photoImage = portrait?.imageData ?? null;
 
   let speaker: 'left' | 'right' | null = null;
@@ -396,8 +348,8 @@ export default function BoothPage() {
       speaker = 'right';
       dialogueLines =
         taskPhaseMs < simpleMode.iSeeYouMs
-          ? ['接头暗号来了！', '一起比出这个手势吧！']
-          : gestureTask.lines;
+          ? ['接头暗号来了！', '任选一个手势开始吧！']
+          : GESTURE_TASK.lines;
     }
   } else if (state === 'LOCKED') {
     if (lockedConfirming) {
@@ -449,13 +401,32 @@ export default function BoothPage() {
           </div>
 
           <div className={`blink-slot blink-left state-${state.toLowerCase()}`}>
-            <span>左侧 Blink 视频占位</span>
-            <strong>{leftVideoKey}</strong>
+            <video
+              key={leftVideoSrc}
+              className="blink-video blink-video-left"
+              src={leftVideoSrc}
+              autoPlay
+              loop
+              muted
+              playsInline
+              preload="auto"
+              aria-hidden="true"
+            />
           </div>
 
           <div className={`blink-slot blink-right ${showRightBlink ? 'is-visible' : ''}`}>
-            <span>右侧 Blink 视频占位</span>
-            <strong>{rightVideoKey}</strong>
+            {showRightBlink && (
+              <video
+                className="blink-video blink-video-right"
+                src={BOOTH_VIDEO.gestureDemo}
+                autoPlay
+                loop
+                muted
+                playsInline
+                preload="auto"
+                aria-hidden="true"
+              />
+            )}
           </div>
 
           {speaker && dialogueLines && state !== 'COUNTDOWN' && (
@@ -469,8 +440,8 @@ export default function BoothPage() {
               {((state === 'PERCEIVING' && phaseHeldMs >= taskStartsAt) ||
                 lockedConfirming) && (
                 <div className={`gesture-task ${lockedConfirming ? 'is-success' : ''}`}>
-                  <span aria-hidden="true">{lockedConfirming ? '✓' : gestureTask.icon}</span>
-                  <strong>{lockedConfirming ? '识别成功' : gestureTask.name}</strong>
+                  <span aria-hidden="true">{lockedConfirming ? '✓' : GESTURE_TASK.icon}</span>
+                  <strong>{lockedConfirming ? '识别成功' : GESTURE_TASK.name}</strong>
                 </div>
               )}
             </div>

@@ -1,11 +1,9 @@
-export type SimpleGestureTarget = 'wave' | 'victory' | 'thumbs-up';
-
 export const simpleMode = {
   enabled: true,
 
   personPresentLatchMs: 2000,
 
-  // Off while the three gestures are being evaluated: standing in view no
+  // Off while gestures are being evaluated: standing in view no
   // longer fills the ring on its own, so a lock can only come from a gesture
   // or the manual shutter. Turn back on for the unattended installation.
   autoReadyEnabled: false,

@@ -2313,6 +2313,7 @@ button:focus-visible, a:focus-visible { outline: 3px solid #00a8e0; outline-offs
 .blink-slot {
   position: absolute;
   z-index: 7;
+  overflow: hidden;
   bottom: 3.5%;
   display: flex;
   width: 18%;
@@ -2329,28 +2330,15 @@ button:focus-visible, a:focus-visible { outline: 3px solid #00a8e0; outline-offs
   pointer-events: none;
 }
 
-.blink-slot span,
-.blink-slot strong {
-  position: relative;
-  z-index: 1;
+.blink-video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
-
-.blink-slot span {
-  font-size: 7px;
-  line-height: 1.35;
-}
-
-.blink-slot strong {
-  margin-top: 4px;
-  color: #fff;
-  font-size: 8px;
-  letter-spacing: 0;
-}
-
-.blink-slot.state-countdown span,
-.blink-slot.state-countdown strong { opacity: 0; }
 
 .blink-left { left: 1.5%; }
+.blink-video-left { object-position: center; }
 
 .blink-right {
   right: 1.5%;
@@ -2363,6 +2351,9 @@ button:focus-visible, a:focus-visible { outline: 3px solid #00a8e0; outline-offs
   opacity: 1;
   transform: translateX(0);
 }
+
+/* The gesture tutorial is landscape footage with the character on the right. */
+.blink-video-right { object-position: 72% center; }
 
 .blink-dialogue {
   position: absolute;

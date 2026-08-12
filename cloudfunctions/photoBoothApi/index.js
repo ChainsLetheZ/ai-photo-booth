@@ -62,6 +62,13 @@ function decodeImage(dataUrl) {
   return { extension, buffer: Buffer.from(match[2], 'base64') };
 }
 
+const EXTENSION_BY_MIME = {
+  'image/jpeg': 'jpg',
+  'image/jpg': 'jpg',
+  'image/png': 'png',
+  'image/webp': 'webp',
+};
+
 async function temporaryUrls(records, includeClaimToken = false) {
   const fileIds = [...new Set(records.flatMap((item) => [item.imageFileId, item.sourceImageFileId]).filter(Boolean))];
   if (!fileIds.length) return records;
@@ -102,33 +109,88 @@ async function reserveCode(body) {
   return response(200, { shortCode });
 }
 
+async function createUploads(body) {
+  if (typeof body.id !== 'string' || !Array.isArray(body.files)) {
+    return response(400, { error: 'Invalid upload request' });
+  }
+  const current = await photos.doc(body.id).get();
+  const reserved = current.data?.[0];
+  if (!reserved?.shortCode || !reserved?.claimToken) {
+    return response(409, { error: 'Code not reserved' });
+  }
+  const seen = new Set();
+  const files = [];
+  for (const item of body.files) {
+    const variant = item?.variant;
+    const extension = EXTENSION_BY_MIME[item?.mimeType];
+    if (!['portrait', 'source'].includes(variant) || !extension || seen.has(variant)) {
+      return response(400, { error: 'Invalid upload file' });
+    }
+    seen.add(variant);
+    const cloudPath = `photo-booth/${new Date().toISOString().slice(0, 10)}/${body.id}/${variant}.${extension}`;
+    const metadata = await app.getUploadMetadata({ cloudPath });
+    files.push({ variant, cloudPath, ...metadata.data });
+  }
+  if (!seen.has('portrait')) return response(400, { error: 'Portrait upload is required' });
+  const pending = Object.fromEntries(
+    files.map((item) => [
+      item.variant === 'portrait' ? 'pendingImageFileId' : 'pendingSourceImageFileId',
+      item.fileId,
+    ]),
+  );
+  const { _id, ...stored } = reserved;
+  await photos.doc(body.id).set({ ...stored, ...pending, uploadIssuedAt: Date.now() });
+  return response(200, files);
+}
+
 async function addEntry(body) {
-  const image = decodeImage(body.imageUrl);
-  const source = body.sourceImageUrl ? decodeImage(body.sourceImageUrl) : null;
-  if (!image || (body.sourceImageUrl && !source) || typeof body.id !== 'string') {
+  const directUpload = typeof body.imageFileId === 'string';
+  const image = directUpload ? null : decodeImage(body.imageUrl);
+  const source = directUpload || !body.sourceImageUrl ? null : decodeImage(body.sourceImageUrl);
+  if (
+    typeof body.id !== 'string' ||
+    (!directUpload && (!image || (body.sourceImageUrl && !source)))
+  ) {
     return response(400, { error: 'Invalid wall entry' });
   }
   const current = await photos.doc(body.id).get();
   const reserved = current.data?.[0];
   if (!reserved?.shortCode || !reserved?.claimToken) return response(409, { error: 'Code not reserved' });
-  const { _id: reservedId, ...reservedFields } = reserved;
-  const prefix = `photo-booth/${new Date().toISOString().slice(0, 10)}/${body.id}`;
-  const uploaded = await app.uploadFile({
-    cloudPath: `${prefix}/portrait.${image.extension}`,
-    fileContent: image.buffer,
-  });
-  let sourceFileId;
-  if (source) {
-    const uploadedSource = await app.uploadFile({
-      cloudPath: `${prefix}/original.${source.extension}`,
-      fileContent: source.buffer,
+  let imageFileId = body.imageFileId;
+  let sourceFileId = body.sourceImageFileId;
+  if (directUpload) {
+    if (
+      imageFileId !== reserved.pendingImageFileId ||
+      (sourceFileId && sourceFileId !== reserved.pendingSourceImageFileId)
+    ) {
+      return response(409, { error: 'Upload does not match reservation' });
+    }
+  } else {
+    const prefix = `photo-booth/${new Date().toISOString().slice(0, 10)}/${body.id}`;
+    const uploaded = await app.uploadFile({
+      cloudPath: `${prefix}/portrait.${image.extension}`,
+      fileContent: image.buffer,
     });
-    sourceFileId = uploadedSource.fileID;
+    imageFileId = uploaded.fileID;
+    if (source) {
+      const uploadedSource = await app.uploadFile({
+        cloudPath: `${prefix}/original.${source.extension}`,
+        fileContent: source.buffer,
+      });
+      sourceFileId = uploadedSource.fileID;
+    }
   }
+  const {
+    _id: reservedId,
+    pendingImageFileId,
+    pendingSourceImageFileId,
+    uploadIssuedAt,
+    ...reservedFields
+  } = reserved;
   const record = {
     ...reservedFields,
     status: 'ready',
-    imageFileId: uploaded.fileID,
+    imageFileId,
     sourceImageFileId: sourceFileId,
     primaryEnergy: body.primaryEnergy,
     secondaryDimension: body.secondaryDimension,
@@ -170,6 +232,7 @@ exports.main = async (event) => {
     if (method === 'GET' && photoMatch) return await getPhoto(photoMatch[1], false);
     if (method === 'POST' && !authorized(event)) return response(401, { error: 'Unauthorized' });
     if (method === 'POST' && path.endsWith('/codes')) return await reserveCode(requestBody(event));
+    if (method === 'POST' && path.endsWith('/uploads')) return await createUploads(requestBody(event));
     if (method === 'POST' && path.endsWith('/entries')) return await addEntry(requestBody(event));
     return response(404, { error: 'Not found' });
   } catch (error) {

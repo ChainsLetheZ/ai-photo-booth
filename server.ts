@@ -28,7 +28,10 @@ if (fs.existsSync(localEnvPath)) {
   }
 }
 
-const MAX_PORTRAIT_DATA_LENGTH = 4_000_000;
+// This limit protects the local booth process only. In CloudBase mode the
+// images are decoded here and uploaded directly to storage, so they never
+// enter the cloud function's 6 MB request envelope.
+const MAX_PORTRAIT_DATA_LENGTH = 20_000_000;
 const CLOUDBASE_PHOTO_API =
   "https://uxgs-d4gv4c7qr60f22622-1317468313.ap-shanghai.app.tcloudbase.com/photo-booth";
 const ALLOWED_PRIMARY = ["Motion", "Intelligence", "Life", "Impact"];
@@ -94,18 +97,20 @@ async function startServer() {
   const cloudProxyUrl = process.env.PHOTO_BOOTH_HTTPS_PROXY || '';
   let wallWebSocket: WebSocketServer | null = null;
 
-  const cloudBaseRequest = async (pathname: string, init?: RequestInit) => {
-    const target = `${CLOUDBASE_PHOTO_API}${pathname}`;
-    const body = typeof init?.body === 'string' ? init.body : undefined;
+  const curlRequest = async (
+    target: string,
+    method: string,
+    headers: string[],
+    body?: string | Buffer,
+  ) => {
     return new Promise<{ status: number; text: () => Promise<string> }>((resolve, reject) => {
       const args = [
         '--silent', '--show-error', '--write-out', '\n%{http_code}',
-        '--request', init?.method || 'GET',
-        '--header', 'Content-Type: application/json',
+        '--request', method,
         '--header', 'Expect:',
+        ...headers.flatMap((header) => ['--header', header]),
         ...(cloudProxyUrl ? ['--proxy', cloudProxyUrl] : []),
-        ...(uploadToken ? ['--header', `X-Photo-Booth-Token: ${uploadToken}`] : []),
-        ...(body ? ['--data-binary', '@-'] : []),
+        ...(body !== undefined ? ['--data-binary', '@-'] : []),
         target,
       ];
       const request = spawn('curl', args, { stdio: ['pipe', 'pipe', 'pipe'] });
@@ -125,9 +130,62 @@ async function startServer() {
         }
         resolve({ status, text: async () => value });
       });
-      if (body) request.stdin.end(body);
-      else request.stdin.end();
+      request.stdin.end(body);
     });
+  };
+
+  const cloudBaseRequest = async (pathname: string, init?: RequestInit) => {
+    const target = `${CLOUDBASE_PHOTO_API}${pathname}`;
+    const body = typeof init?.body === 'string' ? init.body : undefined;
+    return curlRequest(
+      target,
+      init?.method || 'GET',
+      [
+        'Content-Type: application/json',
+        ...(uploadToken ? [`X-Photo-Booth-Token: ${uploadToken}`] : []),
+      ],
+      body,
+    );
+  };
+
+  const decodePortrait = (value: string) => {
+    const match = /^data:(image\/(?:jpeg|jpg|png|webp));base64,([A-Za-z0-9+/=\s]+)$/i.exec(value);
+    if (!match) throw new Error('Unreadable portrait image');
+    return {
+      mimeType: match[1].toLowerCase().replace('image/jpg', 'image/jpeg'),
+      buffer: Buffer.from(match[2], 'base64'),
+    };
+  };
+
+  interface CloudUploadDescriptor {
+    variant: 'portrait' | 'source';
+    cloudPath: string;
+    url: string;
+    token: string;
+    authorization: string;
+    fileId: string;
+    cosFileId: string;
+  }
+
+  const uploadCloudObject = async (
+    descriptor: CloudUploadDescriptor,
+    image: { mimeType: string; buffer: Buffer },
+  ) => {
+    const result = await curlRequest(
+      descriptor.url,
+      'PUT',
+      [
+        `Authorization: ${descriptor.authorization}`,
+        `X-Cos-Security-Token: ${descriptor.token}`,
+        `X-Cos-Meta-Fileid: ${descriptor.cosFileId}`,
+        `key: ${encodeURIComponent(descriptor.cloudPath)}`,
+        `Content-Type: ${image.mimeType}`,
+      ],
+      image.buffer,
+    );
+    if (result.status < 200 || result.status >= 300) {
+      throw new Error(`Cloud storage upload failed (${result.status}): ${await result.text()}`);
+    }
   };
 
   const requireUploadToken: express.RequestHandler = (req, res, next) => {
@@ -297,15 +355,56 @@ async function startServer() {
 
   app.post("/api/wall/entries", requireUploadToken, async (req, res) => {
     if (useCloudBase) {
-      console.log(
-        `[cloud-upload] entry=${req.body?.id || 'unknown'} bytes=${Buffer.byteLength(JSON.stringify(req.body || {}))}`,
-      );
-      const remote = await cloudBaseRequest('/entries', {
-        method: 'POST',
-        body: JSON.stringify(req.body),
-      });
-      console.log(`[cloud-upload] status=${remote.status}`);
-      return res.status(remote.status).send(await remote.text());
+      if (!isWallEntryDraft(req.body)) {
+        return res.status(400).json({ error: "Invalid wall entry" });
+      }
+      try {
+        const portrait = decodePortrait(req.body.imageUrl);
+        const source = req.body.sourceImageUrl
+          ? decodePortrait(req.body.sourceImageUrl)
+          : undefined;
+        const requested = await cloudBaseRequest('/uploads', {
+          method: 'POST',
+          body: JSON.stringify({
+            id: req.body.id,
+            files: [
+              { variant: 'portrait', mimeType: portrait.mimeType },
+              ...(source ? [{ variant: 'source', mimeType: source.mimeType }] : []),
+            ],
+          }),
+        });
+        const requestedText = await requested.text();
+        if (requested.status < 200 || requested.status >= 300) {
+          return res.status(requested.status).send(requestedText);
+        }
+        const descriptors = JSON.parse(requestedText) as CloudUploadDescriptor[];
+        const portraitUpload = descriptors.find((item) => item.variant === 'portrait');
+        const sourceUpload = descriptors.find((item) => item.variant === 'source');
+        if (!portraitUpload || (source && !sourceUpload)) {
+          throw new Error('Cloud storage did not return all upload descriptors');
+        }
+        await Promise.all([
+          uploadCloudObject(portraitUpload, portrait),
+          ...(source && sourceUpload ? [uploadCloudObject(sourceUpload, source)] : []),
+        ]);
+        const { imageUrl: _imageUrl, sourceImageUrl: _sourceImageUrl, ...metadata } = req.body;
+        const remote = await cloudBaseRequest('/entries', {
+          method: 'POST',
+          body: JSON.stringify({
+            ...metadata,
+            imageFileId: portraitUpload.fileId,
+            sourceImageFileId: sourceUpload?.fileId,
+          }),
+        });
+        console.log(`[cloud-upload] entry=${req.body.id} status=${remote.status}`);
+        return res.status(remote.status).send(await remote.text());
+      } catch (error) {
+        console.error('[cloud-upload] failed:', error);
+        return res.status(502).json({
+          error: 'Cloud photo upload failed',
+          detail: error instanceof Error ? error.message : String(error),
+        });
+      }
     }
     if (!isWallEntryDraft(req.body)) {
       return res.status(400).json({ error: "Invalid wall entry" });

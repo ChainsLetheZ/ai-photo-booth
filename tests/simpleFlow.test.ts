@@ -129,10 +129,17 @@ for (const changedInput of [
   subject.update(3000, none);
   subject.generationComplete(3300);
   assert.equal(subject.getSnapshot(3300).state, 'RESULT');
-  assert.equal(subject.update(8300, person).state, 'IDLE');
-  assert.ok(subject.getSnapshot(8300).cooldownRemainingMs > 0);
-  assert.equal(subject.update(10_000, person).state, 'IDLE');
-  assert.equal(subject.update(11_300, person).state, 'PERCEIVING');
+  const resultEndsAt = 3300 + simpleMode.resultHoldMs;
+  assert.equal(subject.update(resultEndsAt, person).state, 'IDLE');
+  assert.ok(subject.getSnapshot(resultEndsAt).cooldownRemainingMs > 0);
+  assert.equal(
+    subject.update(resultEndsAt + simpleMode.cooldownMs - 1, person).state,
+    'IDLE',
+  );
+  assert.equal(
+    subject.update(resultEndsAt + simpleMode.cooldownMs, person).state,
+    'PERCEIVING',
+  );
 }
 
 {

@@ -5,7 +5,7 @@
 ### 架构
 
 - 拍照电脑在本地运行 `/booth`，摄像头与打印不暴露到公网。
-- 本地 Node 服务携带私密上传令牌，将成片和原图上传到 CloudBase。
+- 本地 Node 服务携带私密上传令牌，向云函数申请一次性上传参数；成片和原图随后直接上传云存储，不经过云函数的 6MB 请求体。
 - 大屏电脑打开 CloudBase 静态站点的 `?view=wall` 页面，每 2 秒同步一次。
 - 手机扫描结果页二维码，通过随机领取令牌查看并下载自己的照片。
 - 三台设备只需能访问互联网，不要求连接同一个 Wi-Fi。
@@ -40,7 +40,7 @@
 ### Architecture
 
 - The capture computer runs `/booth` locally, keeping camera and printer access off the public internet.
-- Its local Node service attaches a private upload token and sends the portrait and source image to CloudBase.
+- Its local Node service uses the private token to request one-time upload metadata, then sends the portrait and source image directly to cloud storage without crossing the function's 6 MB request envelope.
 - The display computer opens the CloudBase static `?view=wall` page and refreshes every two seconds.
 - A guest scans the result-page QR code and uses a random claim token to view and download only that photo.
 - All three devices only need internet access; they do not need the same Wi-Fi network.

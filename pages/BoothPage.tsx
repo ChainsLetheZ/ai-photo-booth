@@ -5,6 +5,7 @@ import React, {
   useRef,
   useState,
 } from 'react';
+import QRCode from 'qrcode';
 import {
   BrowserCameraService,
   blobToDataUrl,
@@ -30,6 +31,7 @@ import { renderFuturePortrait } from '../services/portraitRenderer';
 import { capturePoseTrace } from '../services/poseTrace';
 import {
   publishPortrait,
+  publicPhotoUrl,
   reserveWallCode,
 } from '../services/portraitStore';
 import type { BehaviorReading, PortraitRecord, PoseTrace } from '../types';
@@ -46,10 +48,11 @@ const GESTURE_TASK: GestureTask = {
   lines: ['挥手、举手、比耶或点赞，', '任选一个开始吧！'],
 };
 
+const assetBase = import.meta.env?.BASE_URL ?? '/';
 const BOOTH_VIDEO = {
-  ready: '/videos/01-ready.mp4',
-  gestureDemo: '/videos/02-gesture-demo.mp4',
-  captureStart: '/videos/03-capture-start.mp4',
+  ready: `${assetBase}videos/01-ready.mp4`,
+  gestureDemo: `${assetBase}videos/02-gesture-demo.mp4`,
+  captureStart: `${assetBase}videos/03-capture-start.mp4`,
 } as const;
 
 function makeFallbackCapture() {
@@ -76,6 +79,7 @@ export default function BoothPage() {
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
   const [capturedPoseTrace, setCapturedPoseTrace] = useState<PoseTrace[]>([]);
   const [portrait, setPortrait] = useState<PortraitRecord | null>(null);
+  const [claimQr, setClaimQr] = useState('');
   const [error, setError] = useState('');
 
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -99,6 +103,7 @@ export default function BoothPage() {
     setCapturedImage(null);
     setCapturedPoseTrace([]);
     setPortrait(null);
+    setClaimQr('');
     setError('');
     controllerRef.current?.reset();
   }, []);
@@ -152,6 +157,7 @@ export default function BoothPage() {
     setCapturedImage(null);
     setCapturedPoseTrace([]);
     setPortrait(null);
+    setClaimQr('');
     setError('');
   }, [state]);
 
@@ -244,9 +250,16 @@ export default function BoothPage() {
         setPortrait(published);
         // Taking the photo is the consent — every capture goes to the wall,
         // with no second confirmation and no way to hold one back.
-        publishPortrait(published).catch((cause) => {
-          console.error('Wall publish failed', cause);
-        });
+        const wallEntry = await publishPortrait(published);
+        if (cancelled) return;
+        const claimUrl = publicPhotoUrl(wallEntry.claimToken);
+        setClaimQr(
+          await QRCode.toDataURL(claimUrl, {
+            errorCorrectionLevel: 'M',
+            margin: 2,
+            width: 320,
+          }),
+        );
         await new Promise((resolve) =>
           window.setTimeout(resolve, simpleMode.photoPreviewMs),
         );
@@ -468,6 +481,16 @@ export default function BoothPage() {
               <span>现场大屏</span>
               <i />
             </div>
+          )}
+
+          {state === 'RESULT' && claimQr && portrait?.shortCode && (
+            <aside className="photo-claim-card" aria-label="扫码下载照片">
+              <img src={claimQr} alt="照片下载二维码" />
+              <div>
+                <strong>扫码下载照片</strong>
+                <span>照片编号 {portrait.shortCode}</span>
+              </div>
+            </aside>
           )}
         </div>
 

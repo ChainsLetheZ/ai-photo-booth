@@ -54,6 +54,8 @@ export interface PoseTrace {
 export interface WallEntry {
   id: string;
   shortCode: string;
+  /** Unguessable public token used by the phone claim URL. */
+  claimToken: string;
   createdAt: number;
   /** The KV-composed portrait used by the wall's non-river formations. */
   imageUrl: string;
@@ -70,7 +72,10 @@ export interface WallEntry {
   poseTraceVersion: 2;
 }
 
-export type WallEntryDraft = Omit<WallEntry, 'shortCode' | 'createdAt'>;
+export type WallEntryDraft = Omit<
+  WallEntry,
+  'shortCode' | 'claimToken' | 'createdAt'
+>;
 
 export type WallEntrySubmission = WallEntryDraft & {
   requestedShortCode?: string;

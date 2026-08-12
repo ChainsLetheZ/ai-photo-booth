@@ -38,7 +38,11 @@ fallback if those files or the MoveNet runtime become unavailable.
 
 - `/booth` — camera experience and Future Portrait creation
 - `/wall` — live collective display
+- `?photo=<claim-token>` — mobile photo preview and download page
 - `/booth?debug=true` — current perception landmarks, live features, scores and state
+
+CloudBase deployment and the two-computer event setup are documented in
+[`docs/CLOUDBASE_DEPLOYMENT.md`](docs/CLOUDBASE_DEPLOYMENT.md)（中英双语）.
 
 ## Local perception architecture
 
@@ -75,6 +79,12 @@ npm run dev
 ```
 
 Open <http://localhost:3000/booth> and <http://localhost:3000/wall>.
+
+Mac and Windows launchers are included and each computer installs its own
+platform-specific dependencies:
+
+- macOS: double-click `启动-Mac.command`
+- Windows: double-click `启动-Windows.bat`
 
 The MoveNet browser runtime is vendored in `public/vendor/movenet/`. Add the
 MoveNet MultiPose Lightning `model.json` and all weight shards referenced by it

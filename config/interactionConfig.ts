@@ -3,6 +3,8 @@ import type { BodyJoint } from '../perception/types';
 import { demoMode } from './demoMode';
 import { handGesture, simpleMode, simpleModeGesture } from './simpleMode';
 
+const assetBase = import.meta.env?.BASE_URL ?? '/';
+
 export const perception = {
   preferredEngine: 'movenet' as const,
   allowMediaPipeFallback: true,
@@ -135,7 +137,7 @@ export const interactionConfig = {
   simpleModeGesture,
   handGesture,
   moveNet: {
-    modelPath: '/models/movenet/model.json',
+    modelPath: `${assetBase}models/movenet/model.json`,
     scoreThreshold: 0.24,
     // Half-precision textures were enabled for a 15.5% speed gain measured on a
     // blank input, so that benchmark could not see what they cost in accuracy.

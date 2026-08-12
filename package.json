@@ -11,8 +11,12 @@
     "lan": "bash scripts/start-https.sh",
     "cert": "node scripts/ensure-https-cert.mjs",
     "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
+    "build:cloudbase": "vite build --mode cloudbase --base=/ai-photo-booth/",
     "start": "node dist/server.cjs",
-    "start:https": "node dist/server.cjs --https"
+    "start:https": "node dist/server.cjs --https",
+    "setup": "npm ci",
+    "booth": "npm run dev",
+    "wall": "npm run dev"
   },
   "dependencies": {
     "@google/genai": "^1.34.0",

@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import crypto from 'crypto';
 import { wallConfig } from '../config/wallConfig';
 import type { WallEntry, WallEntrySubmission } from '../types';
 import {
@@ -17,7 +18,7 @@ import {
  * valid and naturally fall back to it in the river.
  */
 interface PersistedWallState {
-  version: 5;
+  version: 6;
   nextShortCode: number;
   entries: WallEntry[];
   reservations: Record<string, string>;
@@ -25,7 +26,7 @@ interface PersistedWallState {
 
 function emptyState(): PersistedWallState {
   return {
-    version: 5,
+    version: 6,
     nextShortCode: wallConfig.firstShortCode,
     entries: [],
     reservations: {},
@@ -55,12 +56,26 @@ function withImageUrl(raw: unknown) {
   return isStorableImageUrl(legacy) ? { ...rest, imageUrl: legacy } : rest;
 }
 
+function withClaimToken(raw: unknown) {
+  if (!raw || typeof raw !== 'object') return raw;
+  const entry = raw as Partial<WallEntry>;
+  if (
+    typeof entry.claimToken === 'string' &&
+    /^[A-Za-z0-9_-]{24,64}$/.test(entry.claimToken)
+  ) {
+    return entry;
+  }
+  return { ...entry, claimToken: crypto.randomBytes(18).toString('base64url') };
+}
+
 function isWallEntry(value: unknown): value is WallEntry {
   if (!value || typeof value !== 'object') return false;
   const entry = value as Partial<WallEntry>;
   return (
     typeof entry.id === 'string' &&
     /^\d{3,}$/.test(entry.shortCode ?? '') &&
+    typeof entry.claimToken === 'string' &&
+    /^[A-Za-z0-9_-]{24,64}$/.test(entry.claimToken) &&
     typeof entry.createdAt === 'number' &&
     isStorableImageUrl(entry.imageUrl) &&
     (entry.sourceImageUrl === undefined || isStorableImageUrl(entry.sourceImageUrl)) &&
@@ -89,6 +104,14 @@ export class WallRepository {
     return [...this.state.entries].sort(
       (left, right) => left.createdAt - right.createdAt,
     );
+  }
+
+  findByShortCode(shortCode: string): WallEntry | undefined {
+    return this.state.entries.find((entry) => entry.shortCode === shortCode);
+  }
+
+  findByClaimToken(claimToken: string): WallEntry | undefined {
+    return this.state.entries.find((entry) => entry.claimToken === claimToken);
   }
 
   reserve(id: string, requestedShortCode?: string): string {
@@ -141,6 +164,7 @@ export class WallRepository {
         ? this.storeImage(draft.id, entryDraft.sourceImageUrl, 'source')
         : undefined,
       shortCode: this.reserve(draft.id, requestedShortCode),
+      claimToken: crypto.randomBytes(18).toString('base64url'),
       createdAt: Date.now(),
     };
     this.state.entries.push(entry);
@@ -201,6 +225,7 @@ export class WallRepository {
         const entries = parsed
           .map((entry) => ({ ...entry, poseTrace: [], poseTraceVersion: 2 as const }))
           .map(withImageUrl)
+          .map(withClaimToken)
           .filter(isWallEntry)
           .slice(0, wallConfig.capacity);
         const maxCode = entries.reduce(
@@ -208,7 +233,7 @@ export class WallRepository {
           wallConfig.firstShortCode - 1,
         );
         return {
-          version: 5,
+          version: 6,
           nextShortCode: maxCode + 1,
           entries,
           reservations: Object.fromEntries(
@@ -228,6 +253,7 @@ export class WallRepository {
                 : { ...entry, poseTrace: [], poseTraceVersion: 2 as const },
             )
             .map(withImageUrl)
+            .map(withClaimToken)
             .filter(isWallEntry)
             .slice(0, wallConfig.capacity)
         : [];
@@ -236,7 +262,7 @@ export class WallRepository {
         wallConfig.firstShortCode - 1,
       );
       return {
-        version: 5,
+        version: 6,
         nextShortCode: Math.max(
           Number(parsed.nextShortCode) || wallConfig.firstShortCode,
           maxCode + 1,

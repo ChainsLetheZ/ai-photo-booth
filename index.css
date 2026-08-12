@@ -2585,3 +2585,45 @@ button:focus-visible, a:focus-visible { outline: 3px solid #00a8e0; outline-offs
   .camera-flash,
   .photo-paper { animation: none; }
 }
+.photo-claim-card {
+  position: absolute;
+  right: clamp(28px, 4vw, 72px);
+  bottom: clamp(30px, 5vh, 72px);
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 14px 22px 14px 14px;
+  color: #111;
+  background: rgba(255, 255, 255, 0.96);
+  border-radius: 18px;
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.32);
+  animation: photo-claim-in 420ms ease-out both;
+}
+
+.photo-claim-card img { width: 144px; height: 144px; border-radius: 8px; }
+.photo-claim-card div { display: grid; gap: 8px; }
+.photo-claim-card strong { font-size: 28px; }
+.photo-claim-card span { font-size: 18px; color: #555; }
+
+@keyframes photo-claim-in {
+  from { opacity: 0; transform: translateY(24px) scale(0.94); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.photo-download-page {
+  min-height: 100dvh;
+  padding: 24px;
+  color: #161616;
+  background: linear-gradient(145deg, #edf6fb 0%, #fff 48%, #f4eefb 100%);
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+.photo-download-card { width: min(100%, 620px); margin: 0 auto; text-align: center; }
+.photo-download-brand { margin-bottom: 34px; color: #e20015; font-size: 28px; font-weight: 800; letter-spacing: 0.08em; }
+.photo-download-kicker { margin: 0 0 8px; color: #555; font-size: 13px; letter-spacing: 0.12em; }
+.photo-download-card h1 { margin: 0 0 22px; font-size: clamp(28px, 8vw, 44px); line-height: 1.1; }
+.photo-download-image { display: block; width: 100%; max-height: 68dvh; object-fit: contain; background: #fff; box-shadow: 0 18px 55px rgba(0, 0, 0, 0.16); }
+.photo-download-button { display: block; margin-top: 22px; padding: 17px 24px; color: #fff; background: #007bc0; border-radius: 4px; font-size: 18px; font-weight: 700; text-decoration: none; }
+.photo-download-hint, .photo-download-status, .photo-download-empty p { color: #666; line-height: 1.6; }
+.photo-download-empty { padding-top: 18vh; }

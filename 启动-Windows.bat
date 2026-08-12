@@ -1,0 +1,13 @@
+@echo off
+setlocal
+cd /d "%~dp0"
+
+if not exist "node_modules\.bin\vite.cmd" (
+  echo Installing Windows dependencies...
+  call npm ci
+  if errorlevel 1 exit /b 1
+)
+
+echo Booth: http://localhost:3000/booth
+echo Press Ctrl+C to stop.
+call npm run dev

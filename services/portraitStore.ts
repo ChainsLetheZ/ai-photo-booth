@@ -12,6 +12,34 @@ const channel =
     ? new BroadcastChannel('bosch-collective-wall')
     : null;
 
+const runtimeEnv: Record<string, string | undefined> = import.meta.env ?? {};
+const CLOUDBASE_API =
+  'https://uxgs-d4gv4c7qr60f22622-1317468313.ap-shanghai.app.tcloudbase.com/photo-booth';
+const CLOUDBASE_SITE =
+  'https://uxgs-d4gv4c7qr60f22622-1317468313.tcloudbaseapp.com/ai-photo-booth/index.html';
+const isCloudSite = window.location.hostname.endsWith('tcloudbaseapp.com');
+
+function apiUrl(pathname: string) {
+  return isCloudSite ? `${CLOUDBASE_API}${pathname}` : pathname;
+}
+
+function syncWebSocketUrl() {
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  return `${protocol}//${window.location.host}${wallConfig.websocketPath}`;
+}
+
+export function publicPhotoUrl(claimToken: string) {
+  if (runtimeEnv.VITE_PUBLIC_APP_URL) {
+    return `${runtimeEnv.VITE_PUBLIC_APP_URL.replace(/\/$/, '')}?photo=${encodeURIComponent(claimToken)}`;
+  }
+  if (runtimeEnv.VITE_CLOUDBASE_ENABLED === 'true') {
+    return `${CLOUDBASE_SITE}?photo=${encodeURIComponent(claimToken)}`;
+  }
+  const publicBase = (runtimeEnv.VITE_PUBLIC_APP_URL || window.location.origin)
+    .replace(/\/$/, '');
+  return `${publicBase}/photo/${encodeURIComponent(claimToken)}`;
+}
+
 function readLocal(): WallEntry[] {
   try {
     const value = JSON.parse(
@@ -84,7 +112,7 @@ function portraitToDraft(record: PortraitRecord): WallEntrySubmission {
 
 export async function listWallEntries(): Promise<WallEntry[]> {
   try {
-    const response = await fetch('/api/wall/entries', { cache: 'no-store' });
+    const response = await fetch(apiUrl('/entries'), { cache: 'no-store' });
     if (!response.ok) throw new Error('Wall service unavailable');
     const records = (await response.json()) as WallEntry[];
     writeLocal(records);
@@ -98,7 +126,7 @@ export async function reserveWallCode(id: string): Promise<string> {
   const reservations = readLocalReservations();
   if (reservations[id]) return reservations[id];
   try {
-    const response = await fetch('/api/wall/codes', {
+    const response = await fetch(apiUrl('/codes'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id }),
@@ -129,7 +157,7 @@ export async function reserveWallCode(id: string): Promise<string> {
 export async function publishPortrait(record: PortraitRecord): Promise<WallEntry> {
   const draft = portraitToDraft(record);
   try {
-    const response = await fetch('/api/wall/entries', {
+    const response = await fetch(apiUrl('/entries'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(draft),
@@ -153,6 +181,7 @@ export async function publishPortrait(record: PortraitRecord): Promise<WallEntry
     const fallback: WallEntry = {
       ...fallbackDraft,
       shortCode: String(nextCode).padStart(3, '0'),
+      claimToken: crypto.randomUUID().replace(/-/g, ''),
       createdAt: Date.now(),
     };
     writeLocal(upsert(local, fallback));
@@ -166,6 +195,33 @@ export function subscribeToWallEntries(
   onSync: (entries: WallEntry[]) => void,
   onConnectionChange?: (connected: boolean) => void,
 ) {
+  if (isCloudSite) {
+    let stopped = false;
+    let known = new Set<string>();
+    const poll = async () => {
+      if (stopped) return;
+      try {
+        const response = await fetch(apiUrl('/entries'), { cache: 'no-store' });
+        if (!response.ok) throw new Error('Cloud wall unavailable');
+        const entries = (await response.json()) as WallEntry[];
+        const fresh = entries.filter((entry) => !known.has(entry.id));
+        if (known.size === 0) onSync(entries);
+        else fresh.forEach(onEntry);
+        known = new Set(entries.map((entry) => entry.id));
+        writeLocal(entries);
+        onConnectionChange?.(true);
+      } catch {
+        onConnectionChange?.(false);
+      }
+    };
+    void poll();
+    const timer = window.setInterval(() => void poll(), 2_000);
+    return () => {
+      stopped = true;
+      window.clearInterval(timer);
+    };
+  }
+
   let socket: WebSocket | null = null;
   let stopped = false;
   let reconnectDelay: number = wallConfig.reconnect.initialDelayMs;
@@ -181,10 +237,7 @@ export function subscribeToWallEntries(
 
   const connect = () => {
     if (stopped) return;
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    socket = new WebSocket(
-      `${protocol}//${window.location.host}${wallConfig.websocketPath}`,
-    );
+    socket = new WebSocket(syncWebSocketUrl());
     socket.addEventListener('open', () => {
       reconnectDelay = wallConfig.reconnect.initialDelayMs;
       onConnectionChange?.(true);

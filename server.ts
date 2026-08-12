@@ -17,7 +17,20 @@ import { WallRepository } from "./services/wallRepository";
 import { WALL_MEDIA_ROUTE, wallMediaDirectory } from "./services/wallMedia";
 import type { WallEntrySubmission, WallSocketMessage } from "./types";
 
+// Keep deployment credentials on the booth computer, never in the browser
+// bundle. Vite also reads this file for VITE_* public values only.
+const localEnvPath = path.resolve(process.cwd(), '.env.local');
+if (fs.existsSync(localEnvPath)) {
+  for (const line of fs.readFileSync(localEnvPath, 'utf8').split(/\r?\n/)) {
+    const match = /^([A-Z][A-Z0-9_]*)=(.*)$/.exec(line.trim());
+    if (!match || process.env[match[1]] !== undefined) continue;
+    process.env[match[1]] = match[2].replace(/^(['"])(.*)\1$/, '$2');
+  }
+}
+
 const MAX_PORTRAIT_DATA_LENGTH = 4_000_000;
+const CLOUDBASE_PHOTO_API =
+  "https://uxgs-d4gv4c7qr60f22622-1317468313.ap-shanghai.app.tcloudbase.com/photo-booth";
 const ALLOWED_PRIMARY = ["Motion", "Intelligence", "Life", "Impact"];
 const ALLOWED_SECONDARY = [
   "Collaboration",
@@ -76,7 +89,29 @@ async function startServer() {
     process.env.WALL_DATA_FILE || wallConfig.persistenceFile,
   );
   const wallRepository = new WallRepository(wallDataFile);
+  const uploadToken = process.env.PHOTO_BOOTH_UPLOAD_TOKEN || '';
+  const useCloudBase = process.env.PHOTO_BOOTH_CLOUD_SYNC === 'true';
   let wallWebSocket: WebSocketServer | null = null;
+
+  const cloudBaseRequest = async (
+    pathname: string,
+    init?: RequestInit,
+  ) =>
+    fetch(`${CLOUDBASE_PHOTO_API}${pathname}`, {
+      ...init,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(uploadToken ? { 'X-Photo-Booth-Token': uploadToken } : {}),
+      },
+    });
+
+  const requireUploadToken: express.RequestHandler = (req, res, next) => {
+    // In cloud-sync mode the browser talks only to localhost. The local Node
+    // process attaches the secret when forwarding to the fixed CloudBase host.
+    if (useCloudBase) return next();
+    if (!uploadToken || req.get('X-Photo-Booth-Token') === uploadToken) return next();
+    return res.status(401).json({ error: 'Invalid upload token' });
+  };
 
   const broadcastWallMessage = (message: WallSocketMessage) => {
     const payload = JSON.stringify(message);
@@ -176,11 +211,44 @@ async function startServer() {
 
   // Persistent booth → server → wall contract. A WebSocket connection receives
   // a full sync first, then entry_added events for lossless reconnects.
-  app.get("/api/wall/entries", (_req, res) => {
+  app.get("/api/wall/entries", async (_req, res) => {
+    if (useCloudBase) {
+      const remote = await cloudBaseRequest('/entries');
+      return res.status(remote.status).send(await remote.text());
+    }
     res.json(wallRepository.list());
   });
 
-  app.post("/api/wall/codes", (req, res) => {
+  app.get("/api/photos/:claimToken", (req, res) => {
+    const { claimToken } = req.params;
+    if (!/^[A-Za-z0-9_-]{24,64}$/.test(claimToken)) {
+      return res.status(400).json({ error: "Invalid photo token" });
+    }
+    const entry = wallRepository.findByClaimToken(claimToken);
+    if (!entry) return res.status(404).json({ error: "Photo not found" });
+    res.json(entry);
+  });
+
+  app.get("/api/photos/:claimToken/download", (req, res) => {
+    const { claimToken } = req.params;
+    if (!/^[A-Za-z0-9_-]{24,64}$/.test(claimToken)) {
+      return res.status(400).json({ error: "Invalid photo token" });
+    }
+    const entry = wallRepository.findByClaimToken(claimToken);
+    if (!entry) return res.status(404).json({ error: "Photo not found" });
+    const fileName = path.basename(entry.imageUrl);
+    const filePath = path.join(wallMediaDirectory(wallDataFile), fileName);
+    res.download(filePath, `Bosch-Supplier-Day-${entry.shortCode}${path.extname(fileName)}`);
+  });
+
+  app.post("/api/wall/codes", requireUploadToken, async (req, res) => {
+    if (useCloudBase) {
+      const remote = await cloudBaseRequest('/codes', {
+        method: 'POST',
+        body: JSON.stringify(req.body),
+      });
+      return res.status(remote.status).send(await remote.text());
+    }
     const id = req.body?.id;
     const requestedShortCode = req.body?.requestedShortCode;
     if (
@@ -202,7 +270,14 @@ async function startServer() {
     }
   });
 
-  app.post("/api/wall/entries", (req, res) => {
+  app.post("/api/wall/entries", requireUploadToken, async (req, res) => {
+    if (useCloudBase) {
+      const remote = await cloudBaseRequest('/entries', {
+        method: 'POST',
+        body: JSON.stringify(req.body),
+      });
+      return res.status(remote.status).send(await remote.text());
+    }
     if (!isWallEntryDraft(req.body)) {
       return res.status(400).json({ error: "Invalid wall entry" });
     }

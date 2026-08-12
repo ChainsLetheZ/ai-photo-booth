@@ -21,7 +21,10 @@ const isCloudSite = window.location.hostname.endsWith('tcloudbaseapp.com');
 const requiresCloudUpload = runtimeEnv.VITE_CLOUDBASE_ENABLED === 'true';
 
 function apiUrl(pathname: string) {
-  return isCloudSite ? `${CLOUDBASE_API}${pathname}` : pathname;
+  if (isCloudSite) return `${CLOUDBASE_API}${pathname}`;
+  if (pathname === '/entries') return '/api/wall/entries';
+  if (pathname === '/codes') return '/api/wall/codes';
+  return pathname;
 }
 
 function syncWebSocketUrl() {

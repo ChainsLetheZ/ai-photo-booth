@@ -9,7 +9,7 @@
 .finale-seq {
   position: absolute;
   inset: 0;
-  overflow: hidden;
+  overflow: visible;
   opacity: 0;
   pointer-events: none;
   transition: opacity 380ms ease;
@@ -23,8 +23,10 @@
    is a readout of the crowd rather than a backdrop. */
 .finale-seq-field {
   position: absolute;
-  inset: -10%;
-  background: var(--finale-field, linear-gradient(#050c12, #02070b));
+  inset: -28%;
+  background:
+    radial-gradient(ellipse 42% 34% at 50% 50%, color-mix(in srgb, var(--finale-accent, #7bd5ef) 14%, transparent), transparent 72%),
+    var(--finale-field, linear-gradient(#050c12, #02070b));
   opacity: var(--field-opacity, 0);
   filter: brightness(var(--field-heat, 0.4)) saturate(1.15);
   will-change: filter, opacity;
@@ -52,6 +54,8 @@
 .finale-seq-cards {
   position: absolute;
   inset: 0;
+  overflow: visible;
+  z-index: 2;
 }
 
 /* A bounded pool: one node per card the sequence actually shows, never a node
@@ -62,7 +66,7 @@
   left: 0;
   top: 0;
   width: var(--finale-card-width, 160px);
-  aspect-ratio: 4 / 3;
+  aspect-ratio: 1;
   opacity: 0;
   transform: translate3d(-50%, -50%, 0) scale(0.5);
   will-change: transform, opacity;
@@ -74,19 +78,20 @@
   /* Fixed once, forever. The finale never re-crops a face to make room for an
      effect — this is the one rule the whole sequence is built around. */
   object-fit: cover;
-  object-position: center 30%;
-  border-radius: 3px;
-  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.55);
+  object-position: center;
+  border-radius: 1px;
+  box-shadow: 0 0 9px color-mix(in srgb, var(--card-energy, #7bd5ef) 48%, transparent);
   filter: blur(var(--card-blur, 0px))
-    brightness(calc(1 + var(--card-glow, 0) * 0.22));
+    brightness(calc(1.04 + var(--card-glow, 0) * 0.45))
+    saturate(1.15);
 }
 /* The pulse's response at this card: a brief edge light, not a colour wash. */
 .finale-seq-card::after {
   position: absolute;
   content: '';
-  inset: 0;
-  border-radius: 3px;
-  box-shadow: 0 0 0 1.5px
+  inset: -1px;
+  border-radius: 1px;
+  box-shadow: 0 0 0 1px
     color-mix(in srgb, var(--card-energy, #7bd5ef) 85%, transparent);
   opacity: var(--card-glow, 0);
   mix-blend-mode: screen;
@@ -101,35 +106,50 @@
     transparent 72%
   );
   opacity: var(--halo-opacity, 0);
+  z-index: 3;
 }
 
+.finale-seq-flash {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  background: color-mix(in srgb, var(--finale-accent, #7bd5ef) 24%, white);
+  opacity: var(--flash-opacity, 0);
+  mix-blend-mode: screen;
+  pointer-events: none;
+}
+
+/* The photo-pixels only suggest the target positions. A brief flash hides
+   their exit, then the clean KV typography becomes the final held frame. */
 .finale-seq-type {
   position: absolute;
   inset: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
+  z-index: 5;
+  display: grid;
+  place-items: center;
   opacity: var(--tagline-opacity, 0);
   transform: scale(var(--tagline-scale, 1.08));
-  will-change: opacity, transform;
+  mix-blend-mode: screen;
+  pointer-events: none;
+  will-change: transform, opacity;
 }
 .finale-seq-type h1 {
   margin: 0;
   color: #fff;
-  font-size: 9.6vmin;
+  font-family: "PingFang SC", "Microsoft YaHei", "Noto Sans SC", sans-serif;
+  font-size: min(15vw, 280px);
   font-weight: 900;
-  letter-spacing: 0.22em;
-  text-indent: 0.22em;
-  line-height: 1.1;
+  line-height: 1.16;
   text-align: center;
-  text-shadow: 0 8px 60px rgba(0, 0, 0, 0.6);
-  filter: blur(var(--tagline-blur, 14px));
+  white-space: pre-line;
+  filter: blur(var(--tagline-blur, 0));
+  text-shadow:
+    0 0 18px color-mix(in srgb, var(--finale-accent, #7bd5ef) 58%, transparent),
+    0 0 52px color-mix(in srgb, var(--finale-accent, #7bd5ef) 34%, transparent);
 }
+
 @media (prefers-reduced-motion: reduce) {
   .finale-seq-card,
   .finale-seq-pulse { display: none; }
-  .finale-seq-type { opacity: 1; transform: none; }
-  .finale-seq-type h1 { filter: none; }
   .finale-seq { transition: opacity 200ms ease; }
 }

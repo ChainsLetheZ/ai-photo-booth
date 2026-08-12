@@ -19,6 +19,8 @@ export interface BehaviorReading {
 
 export interface PortraitRecord {
   id: string;
+  /** Original camera frame, retained for the wall's unframed photo river. */
+  sourceImageData?: string;
   imageData: string;
   timestamp: number;
   primary: PrimaryEnergy;
@@ -53,15 +55,13 @@ export interface WallEntry {
   id: string;
   shortCode: string;
   createdAt: number;
-  /**
-   * The one image the wall draws. A submission carries the captured
-   * `data:image/...` bytes; once stored this is a URL under `/media/wall`,
-   * because the wall store keeps photo files beside itself rather than inline.
-   *
-   * There is deliberately no separate full-resolution copy: nothing on the
-   * wall displays one. The booth keeps its own full image for printing.
-   */
+  /** The KV-composed portrait used by the wall's non-river formations. */
   imageUrl: string;
+  /**
+   * Original camera capture used by the resting photo river. Optional for
+   * compatibility with portraits collected before this field existed.
+   */
+  sourceImageUrl?: string;
   primaryEnergy: PrimaryEnergy;
   secondaryDimension: SecondaryDimension;
   narrativeLine: string;

@@ -12,14 +12,12 @@ import {
 } from './wallMedia';
 
 /**
- * Version 4 stores one image per entry. Earlier versions carried a separate
- * full-resolution `photoUrl` alongside `thumbUrl`, both holding the same bytes
- * and neither ever displayed at full size; version 2 also kept those bytes
- * inline as base64. Both older shapes are still readable and are converted the
- * first time the store is opened.
+ * Version 5 keeps the KV result plus the original camera capture used by the
+ * resting river. Earlier versions carried only the KV result; they remain
+ * valid and naturally fall back to it in the river.
  */
 interface PersistedWallState {
-  version: 4;
+  version: 5;
   nextShortCode: number;
   entries: WallEntry[];
   reservations: Record<string, string>;
@@ -27,7 +25,7 @@ interface PersistedWallState {
 
 function emptyState(): PersistedWallState {
   return {
-    version: 4,
+    version: 5,
     nextShortCode: wallConfig.firstShortCode,
     entries: [],
     reservations: {},
@@ -65,6 +63,7 @@ function isWallEntry(value: unknown): value is WallEntry {
     /^\d{3,}$/.test(entry.shortCode ?? '') &&
     typeof entry.createdAt === 'number' &&
     isStorableImageUrl(entry.imageUrl) &&
+    (entry.sourceImageUrl === undefined || isStorableImageUrl(entry.sourceImageUrl)) &&
     typeof entry.primaryEnergy === 'string' &&
     typeof entry.secondaryDimension === 'string' &&
     typeof entry.narrativeLine === 'string' &&
@@ -138,6 +137,9 @@ export class WallRepository {
     const entry: WallEntry = {
       ...entryDraft,
       imageUrl: this.storeImage(draft.id, entryDraft.imageUrl),
+      sourceImageUrl: entryDraft.sourceImageUrl
+        ? this.storeImage(draft.id, entryDraft.sourceImageUrl, 'source')
+        : undefined,
       shortCode: this.reserve(draft.id, requestedShortCode),
       createdAt: Date.now(),
     };
@@ -150,24 +152,40 @@ export class WallRepository {
    * Accepts either form: a data URL is written out and replaced by its URL, an
    * already stored URL passes through so a replayed submission is idempotent.
    */
-  private storeImage(id: string, value: string) {
+  private storeImage(id: string, value: string, variant = 'kv') {
     if (isWallMediaUrl(value)) return value;
     const image = decodeDataUrl(value);
     if (!image) throw new Error('WALL_MEDIA_INVALID');
-    return writeWallImage(this.mediaDirectory, mediaBaseName(id), image);
+    const baseName =
+      variant === 'kv' ? mediaBaseName(id) : `${mediaBaseName(id)}-${variant}`;
+    return writeWallImage(this.mediaDirectory, baseName, image);
   }
 
-  /** Moves any version 2 inline base64 entry onto disk. */
+  /** Moves inline images from pre-file-backed stores onto disk. */
   private migrateInlineImages() {
     let changed = false;
     for (const entry of this.state.entries) {
-      if (!isDataUrl(entry.imageUrl)) continue;
-      try {
-        entry.imageUrl = this.storeImage(entry.id, entry.imageUrl);
-        changed = true;
-      } catch {
-        // An undecodable legacy entry keeps its inline data rather than being
-        // dropped; the wall can still render it.
+      if (isDataUrl(entry.imageUrl)) {
+        try {
+          entry.imageUrl = this.storeImage(entry.id, entry.imageUrl);
+          changed = true;
+        } catch {
+          // An undecodable legacy entry keeps its inline data rather than being
+          // dropped; the wall can still render it.
+        }
+      }
+      if (entry.sourceImageUrl && isDataUrl(entry.sourceImageUrl)) {
+        try {
+          entry.sourceImageUrl = this.storeImage(
+            entry.id,
+            entry.sourceImageUrl,
+            'source',
+          );
+          changed = true;
+        } catch {
+          // Keep an undecodable original inline for the same backwards-safe
+          // fallback as the composed portrait.
+        }
       }
     }
     return changed;
@@ -190,7 +208,7 @@ export class WallRepository {
           wallConfig.firstShortCode - 1,
         );
         return {
-          version: 4,
+          version: 5,
           nextShortCode: maxCode + 1,
           entries,
           reservations: Object.fromEntries(
@@ -201,7 +219,7 @@ export class WallRepository {
       // Pose traces and reservations both arrived in version 2, so every
       // version at or above it carries them through untouched.
       const storedVersion = Number(parsed.version) || 1;
-      if (storedVersion < 4) this.upgradedOnRead = true;
+      if (storedVersion < 5) this.upgradedOnRead = true;
       const entries = Array.isArray(parsed.entries)
         ? parsed.entries
             .map((entry) =>
@@ -218,7 +236,7 @@ export class WallRepository {
         wallConfig.firstShortCode - 1,
       );
       return {
-        version: 4,
+        version: 5,
         nextShortCode: Math.max(
           Number(parsed.nextShortCode) || wallConfig.firstShortCode,
           maxCode + 1,

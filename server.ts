@@ -34,6 +34,10 @@ function isWallEntryDraft(value: unknown): value is WallEntrySubmission {
     typeof draft.imageUrl === "string" &&
     draft.imageUrl.startsWith("data:image/") &&
     draft.imageUrl.length <= MAX_PORTRAIT_DATA_LENGTH &&
+    (draft.sourceImageUrl === undefined ||
+      (typeof draft.sourceImageUrl === "string" &&
+        draft.sourceImageUrl.startsWith("data:image/") &&
+        draft.sourceImageUrl.length <= MAX_PORTRAIT_DATA_LENGTH)) &&
     ALLOWED_PRIMARY.includes(draft.primaryEnergy ?? "") &&
     ALLOWED_SECONDARY.includes(draft.secondaryDimension ?? "") &&
     typeof draft.narrativeLine === "string" &&

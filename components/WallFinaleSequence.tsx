@@ -1,7 +1,6 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { ENERGY_CONFIG } from '../constants';
 import {
-  chooseFinalePhotos,
   DEFAULT_FINALE_TIMING,
   FINALE_CARD_COUNT,
   finaleCardWidthPx,
@@ -9,6 +8,7 @@ import {
   finaleTotalMs,
   layoutFinaleCards,
   type FinaleTiming,
+  type FinalePixelTarget,
 } from '../services/wallFinaleSequence';
 import type { PrimaryEnergy, WallEntry } from '../types';
 import './wallFinaleSequence.css';
@@ -22,6 +22,7 @@ export interface FinaleStartPosition {
 }
 
 export type FinaleStartMap = Record<string, FinaleStartPosition>;
+const EMPTY_START_POSITIONS: FinaleStartMap = {};
 
 /**
  * individual presence → collective convergence → AI perception → distilled
@@ -44,6 +45,11 @@ const FIELD_ANCHORS: Record<PrimaryEnergy, [number, number]> = {
   Life: [30, 74],
   Impact: [72, 76],
 };
+
+// A lightly populated rehearsal still needs a readable collective mark. Each
+// guest remains present at least once; only when the wall is sparse do their
+// tiny image-pixels echo to complete the letterform.
+const MIN_PIXEL_COUNT = FINALE_CARD_COUNT;
 
 function fieldGradient(entries: WallEntry[]) {
   const energies = Object.keys(ENERGY_CONFIG) as PrimaryEnergy[];
@@ -71,11 +77,70 @@ function dominantAccent(entries: WallEntry[]) {
   return ENERGY_CONFIG[top[0]].accent;
 }
 
+function taglineLines(tagline: string) {
+  const copy = tagline.trim();
+  return copy.length === 8 ? [copy.slice(0, 4), copy.slice(4)] : [copy];
+}
+
+/**
+ * Samples the supplied KV copy into positions for the tiny portrait tiles.
+ * The canvas is only a layout probe: the live finale still renders the actual
+ * photos, so every stored portrait becomes one visible pixel in the phrase.
+ */
+function rasteriseTagline(
+  tagline: string,
+  count: number,
+): FinalePixelTarget[] {
+  if (count <= 0 || typeof document === 'undefined') return [];
+  const canvas = document.createElement('canvas');
+  const width = 1600;
+  const height = 900;
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext('2d', { willReadFrequently: true });
+  const copy = tagline.trim();
+  if (!context || !copy) return [];
+
+  const lines = taglineLines(copy);
+  const longestLine = Math.max(...lines.map((line) => line.length));
+  const fontSize = Math.min(
+    280,
+    Math.max(86, Math.floor((width * 0.6) / longestLine)),
+  );
+  context.fillStyle = '#fff';
+  context.font = `900 ${fontSize}px "PingFang SC", "Microsoft YaHei", "Noto Sans SC", sans-serif`;
+  context.textAlign = 'center';
+  context.textBaseline = 'middle';
+  const lineHeight = fontSize * 1.16;
+  lines.forEach((line, index) => {
+    const y = height / 2 + (index - (lines.length - 1) / 2) * lineHeight;
+    context.fillText(line, width / 2, y);
+  });
+
+  const pixels = context.getImageData(0, 0, width, height).data;
+  const candidates: FinalePixelTarget[] = [];
+  const step = 4;
+  for (let y = 0; y < height; y += step) {
+    for (let x = 0; x < width; x += step) {
+      if (pixels[(y * width + x) * 4 + 3] < 96) continue;
+      candidates.push({ xUnit: x / width, yUnit: y / height });
+    }
+  }
+  if (candidates.length === 0) return [];
+  return Array.from({ length: count }, (_, index) => {
+    const candidateIndex = Math.min(
+      candidates.length - 1,
+      Math.floor(((index + 0.5) / count) * candidates.length),
+    );
+    return candidates[candidateIndex];
+  });
+}
+
 export default function WallFinaleSequence({
   entries,
   active,
   tagline,
-  startPositions = {},
+  startPositions = EMPTY_START_POSITIONS,
   timing = DEFAULT_FINALE_TIMING,
 }: {
   entries: WallEntry[];
@@ -92,17 +157,22 @@ export default function WallFinaleSequence({
     () => [...entries].sort((left, right) => left.createdAt - right.createdAt),
     [entries],
   );
-  const cards = useMemo(() => {
-    const visible = ordered.flatMap((entry, index) =>
-      startPositions[entry.id] ? [index] : [],
+  const particleEntries = useMemo(() => {
+    if (ordered.length === 0) return [];
+    const count = Math.min(
+      FINALE_CARD_COUNT,
+      Math.max(MIN_PIXEL_COUNT, ordered.length),
     );
-    const sampled = chooseFinalePhotos(ordered.length);
-    const indices = [
-      ...visible,
-      ...sampled.filter((index) => !visible.includes(index)),
-    ].slice(0, Math.min(FINALE_CARD_COUNT, ordered.length));
-    return layoutFinaleCards(indices).map((card) => {
-      const entry = ordered[card.entryIndex];
+    return Array.from({ length: count }, (_, index) => ordered[index % ordered.length]);
+  }, [ordered]);
+  const pixelTargets = useMemo(
+    () => rasteriseTagline(tagline, particleEntries.length),
+    [particleEntries.length, tagline],
+  );
+  const cards = useMemo(() => {
+    const indices = particleEntries.map((_, index) => index);
+    return layoutFinaleCards(indices, pixelTargets).map((card) => {
+      const entry = particleEntries[card.entryIndex];
       const start = entry ? startPositions[entry.id] : undefined;
       return start
         ? {
@@ -113,7 +183,7 @@ export default function WallFinaleSequence({
           }
         : card;
     });
-  }, [ordered, startPositions]);
+  }, [particleEntries, pixelTargets, startPositions]);
   const field = useMemo(() => fieldGradient(entries), [entries]);
   const accent = useMemo(() => dominantAccent(entries), [entries]);
 
@@ -156,6 +226,7 @@ export default function WallFinaleSequence({
       root.style.setProperty('--tagline-opacity', frame.taglineOpacity.toFixed(3));
       root.style.setProperty('--tagline-scale', frame.taglineScale.toFixed(4));
       root.style.setProperty('--halo-opacity', frame.haloOpacity.toFixed(3));
+      root.style.setProperty('--flash-opacity', frame.flashOpacity.toFixed(3));
 
       const byIndex = new Map(frame.cards.map((card) => [card.entryIndex, card]));
       cards.forEach((layout, poolIndex) => {
@@ -163,14 +234,15 @@ export default function WallFinaleSequence({
         const image = imageRefs.current[poolIndex];
         if (!card || !image) return;
         const state = byIndex.get(layout.entryIndex);
-        const entry = ordered[layout.entryIndex];
+        const entry = particleEntries[layout.entryIndex];
         if (!state || !entry) {
           card.style.opacity = '0';
           return;
         }
-        if (image.dataset.src !== entry.imageUrl) {
-          image.src = entry.imageUrl;
-          image.dataset.src = entry.imageUrl;
+        const imageUrl = entry.sourceImageUrl ?? entry.imageUrl;
+        if (image.dataset.src !== imageUrl) {
+          image.src = imageUrl;
+          image.dataset.src = imageUrl;
         }
         const xPx = state.xUnit * stageWidth;
         const yPx = state.yUnit * stageHeight;
@@ -204,7 +276,7 @@ export default function WallFinaleSequence({
       }
     });
     return () => cancelAnimationFrame(frameId);
-  }, [active, cards, ordered, timing]);
+  }, [active, cards, particleEntries, timing]);
 
   return (
     <div ref={rootRef} className={`finale-seq ${active ? 'is-running' : ''}`} aria-hidden="true">
@@ -231,8 +303,9 @@ export default function WallFinaleSequence({
       </div>
 
       <div className="finale-seq-halo" />
+      <div className="finale-seq-flash" />
       <div className="finale-seq-type">
-        <h1>{tagline}</h1>
+        <h1>{taglineLines(tagline).join('\n')}</h1>
       </div>
     </div>
   );

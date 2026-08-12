@@ -128,7 +128,12 @@ export default function WallPhotoRiver({
                   } as React.CSSProperties
                 }
               >
-                <img src={tile.entry.imageUrl} alt="" draggable={false} />
+                <img
+                  className={!tile.entry.sourceImageUrl ? 'is-legacy-composed' : undefined}
+                  src={tile.entry.sourceImageUrl ?? tile.entry.imageUrl}
+                  alt=""
+                  draggable={false}
+                />
               </div>
             ))}
           </div>

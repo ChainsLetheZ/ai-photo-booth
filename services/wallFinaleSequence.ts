@@ -91,8 +91,9 @@ export function phaseStartMs(
   return cursor;
 }
 
-export const FINALE_CARD_COUNT = 28;
-/** How much of the stage the converged grid occupies, centred. */
+/** Every stored portrait can become one image-pixel in the finale. */
+export const FINALE_CARD_COUNT = 200;
+/** Fallback field used only when the browser cannot rasterise the KV copy. */
 const GRID_BOX = { width: 0.6, height: 0.54 };
 const SCATTER_SPREAD = 0.47;
 const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
@@ -165,6 +166,11 @@ export interface FinaleCardLayout {
   startScale: number;
 }
 
+export interface FinalePixelTarget {
+  xUnit: number;
+  yUnit: number;
+}
+
 /**
  * The converge grid and each card's fallback scattered starting point.
  *
@@ -173,7 +179,10 @@ export interface FinaleCardLayout {
  * uses a golden-angle spiral, which stays visually even at any card count
  * rather than clumping toward the centre.
  */
-export function layoutFinaleCards(indices: number[]): FinaleCardLayout[] {
+export function layoutFinaleCards(
+  indices: number[],
+  pixelTargets: FinalePixelTarget[] = [],
+): FinaleCardLayout[] {
   const { cols, rows } = finaleGridFor(indices.length);
   if (cols === 0 || rows === 0) return [];
 
@@ -187,10 +196,13 @@ export function layoutFinaleCards(indices: number[]): FinaleCardLayout[] {
   return indices.map((entryIndex, index) => {
     const column = index % cols;
     const row = Math.floor(index / cols);
-    const targetX =
+    const fallbackTargetX =
       left + cellWidth * (column + 0.5) + (jitter(index, 1) - 0.5) * jitterX;
-    const targetY =
+    const fallbackTargetY =
       top + cellHeight * (row + 0.5) + (jitter(index, 2) - 0.5) * jitterY;
+    const pixelTarget = pixelTargets[index];
+    const targetX = pixelTarget?.xUnit ?? fallbackTargetX;
+    const targetY = pixelTarget?.yUnit ?? fallbackTargetY;
 
     const angle = index * GOLDEN_ANGLE + jitter(index, 3) * 1.4;
     const radius = Math.sqrt((index + 0.5) / indices.length) * SCATTER_SPREAD;
@@ -199,10 +211,12 @@ export function layoutFinaleCards(indices: number[]): FinaleCardLayout[] {
       entryIndex,
       targetX: clamp(targetX, 0.03, 0.97),
       targetY: clamp(targetY, 0.08, 0.92),
-      targetRotationDeg: (jitter(index, 4) - 0.5) * 4,
+      targetRotationDeg: pixelTarget ? 0 : (jitter(index, 4) - 0.5) * 4,
       startX: clamp(0.5 + Math.cos(angle) * radius, 0.02, 0.98),
       startY: clamp(0.5 + Math.sin(angle) * radius * 0.75, 0.06, 0.94),
-      startScale: 0.52,
+      // Entries not currently visible in the river arrive from the open field
+      // as larger cards as well, then contract into their image-pixel.
+      startScale: 7 + jitter(index, 5) * 3,
     };
   });
 }
@@ -218,12 +232,8 @@ export function finaleCardWidthPx(
   count: number,
 ): number {
   if (stageWidth <= 0 || stageHeight <= 0 || count <= 0) return 0;
-  const { cols, rows } = finaleGridFor(count);
-  const gapFactor = 0.86;
-  const widthFromColumn = (stageWidth * GRID_BOX.width * gapFactor) / cols;
-  const widthFromRow =
-    ((stageHeight * GRID_BOX.height * gapFactor) / rows) * (4 / 3);
-  return Math.min(widthFromColumn, widthFromRow);
+  const densitySize = Math.sqrt((stageWidth * stageHeight) / (count * 78));
+  return clamp(densitySize, 10, 16);
 }
 
 export interface FinaleCardFrame {
@@ -247,6 +257,8 @@ export interface FinaleFrame {
   fieldHeat: number;
   /** The sweep's own position while it is on stage, else null. */
   pulseXUnit: number | null;
+  /** Full-field flash that hides the handoff from photo points to clean type. */
+  flashOpacity: number;
   taglineBlurPx: number;
   taglineOpacity: number;
   taglineScale: number;
@@ -300,12 +312,14 @@ export function finaleFrameAt(
         : gaussian(card.targetX - sweepX, PULSE_SIGMA);
     const pulseScale = 1 + glow * 0.035;
 
-    // Retreat: the grid gives up the frame together.
-    const retreatX = card.targetX + (0.5 - card.targetX) * retreatEase * 0.06;
-    const retreatY = card.targetY + (0.5 - card.targetY) * retreatEase * 0.06;
-    const retreatScale = 1 - retreatEase * 0.18;
-    const retreatOpacity = 1 - retreatEase;
-    const retreatBlur = retreatEase * 6;
+    // The points only imply the letter placement. They contract and disappear
+    // behind the flash; the final KV copy is clean type, not tiny photographs.
+    const retreatX = card.targetX;
+    const retreatY = card.targetY;
+    const retreatScale = 1 - retreatEase * 0.38;
+    const retreatOpacity =
+      1 - easeInOutCubic(clamp((retreatP - 0.42) / 0.58, 0, 1));
+    const retreatBlur = retreatEase * 3;
 
     const inRetreatOrLater = timeMs >= retreatStart;
     return {
@@ -332,14 +346,20 @@ export function finaleFrameAt(
     clamp((timeMs - convergeStart) / (timing.convergeMs * 0.32), 0, 1),
   );
 
-  const taglineEase = easeOutCubic(clamp((taglineP - 0.1) / 0.9, 0, 1));
+  const taglineEase = easeOutCubic(clamp((taglineP - 0.08) / 0.72, 0, 1));
+  const flashLeadMs = Math.min(220, timing.retreatMs * 0.35);
+  const flashDurationMs = 360;
+  const flashP = (timeMs - (taglineStart - flashLeadMs)) / flashDurationMs;
+  const flashOpacity =
+    flashP > 0 && flashP < 1 ? Math.sin(Math.PI * flashP) : 0;
   return {
     cards: cardFrames,
     fieldOpacity,
     fieldHeat,
     pulseXUnit:
       sweepX !== null && timeMs < retreatStart ? clamp(sweepX, 0, 1) : null,
-    taglineBlurPx: 14 * (1 - taglineEase),
+    flashOpacity,
+    taglineBlurPx: 9 * (1 - taglineEase),
     taglineOpacity: taglineEase,
     // The sentence settles down to size rather than growing into place.
     taglineScale: 1.08 - taglineEase * 0.08,

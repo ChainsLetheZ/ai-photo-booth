@@ -71,6 +71,7 @@ function portraitToDraft(record: PortraitRecord): WallEntrySubmission {
   return {
     id: record.id,
     imageUrl: record.imageData,
+    sourceImageUrl: record.sourceImageData,
     primaryEnergy: record.primary,
     secondaryDimension: record.secondary,
     narrativeLine: record.narrative,

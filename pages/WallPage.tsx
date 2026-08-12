@@ -18,7 +18,6 @@ import WallFinaleSequence, {
   type FinaleStartMap,
 } from '../components/WallFinaleSequence';
 import {
-  FINALE_CARD_COUNT,
   finaleCardWidthPx,
   finaleDurationMs,
   nextFinalePhase,
@@ -93,7 +92,7 @@ function captureFinaleStarts(
         score,
         xUnit: Math.min(1, Math.max(0, (x - stageRect.left) / stageRect.width)),
         yUnit: Math.min(1, Math.max(0, (y - stageRect.top) / stageRect.height)),
-        scale: Math.min(4, Math.max(0.55, rect.width / finalCardWidth)),
+        scale: Math.min(28, Math.max(1, rect.width / finalCardWidth)),
       });
     });
 
@@ -394,7 +393,7 @@ export default function WallPage() {
       riverActive
         ? captureFinaleStarts(
             stageRef.current,
-            Math.min(FINALE_CARD_COUNT, snapshot.length),
+            snapshot.length,
           )
         : {},
     );

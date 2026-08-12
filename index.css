@@ -1143,6 +1143,7 @@ button:focus-visible, a:focus-visible { outline: 3px solid #00a8e0; outline-offs
 .wall-river-tile {
   position: absolute;
   padding: calc(var(--river-gap, 10px) / 2);
+  overflow: hidden;
 }
 .wall-river-tile img {
   width: 100%;
@@ -2328,6 +2329,15 @@ button:focus-visible, a:focus-visible { outline: 3px solid #00a8e0; outline-offs
   color: rgba(255,255,255,.72);
   text-align: center;
   pointer-events: none;
+}
+
+/* Legacy wall records only retained the already-composited KV image. Zoom the
+   river crop into its clean upper area so the old bottom caption never leaks
+   into the live wall; newly captured source images remain untouched. */
+.wall-river-tile img.is-legacy-composed {
+  object-position: center;
+  transform: scale(3);
+  transform-origin: center 22%;
 }
 
 .blink-video {

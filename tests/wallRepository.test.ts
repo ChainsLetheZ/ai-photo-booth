@@ -15,6 +15,7 @@ function draft(id: string): WallEntryDraft {
   return {
     id,
     imageUrl: 'data:image/jpeg;base64,AA==',
+    sourceImageUrl: 'data:image/jpeg;base64,AQ==',
     primaryEnergy: 'Intelligence',
     secondaryDimension: 'Precision',
     narrativeLine: 'A precise collective signal.',
@@ -38,6 +39,11 @@ try {
   // a capture never rewrites the bytes of every earlier capture.
   assert.ok(first.entry.imageUrl.startsWith(`${WALL_MEDIA_ROUTE}/`));
   assert.ok(fs.existsSync(storedFile(mediaDirectory, first.entry.imageUrl)));
+  assert.ok(first.entry.sourceImageUrl?.startsWith(`${WALL_MEDIA_ROUTE}/`));
+  assert.ok(
+    first.entry.sourceImageUrl &&
+      fs.existsSync(storedFile(mediaDirectory, first.entry.sourceImageUrl)),
+  );
   assert.ok(!fs.readFileSync(storePath, 'utf8').includes('data:image'));
 
   const duplicate = firstRepository.add(draft('first'));

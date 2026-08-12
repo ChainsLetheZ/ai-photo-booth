@@ -94,12 +94,10 @@ async function reserveCode(body) {
   const shortCode = String(Math.max(101, last + 1)).padStart(3, '0');
   const claimToken = crypto.randomBytes(18).toString('base64url');
   await photos.doc(body.id).set({
-    data: {
-      shortCode,
-      claimToken,
-      status: 'reserved',
-      createdAt: Date.now(),
-    },
+    shortCode,
+    claimToken,
+    status: 'reserved',
+    createdAt: Date.now(),
   });
   return response(200, { shortCode });
 }
@@ -113,6 +111,7 @@ async function addEntry(body) {
   const current = await photos.doc(body.id).get();
   const reserved = current.data?.[0];
   if (!reserved?.shortCode || !reserved?.claimToken) return response(409, { error: 'Code not reserved' });
+  const { _id: reservedId, ...reservedFields } = reserved;
   const prefix = `photo-booth/${new Date().toISOString().slice(0, 10)}/${body.id}`;
   const uploaded = await app.uploadFile({
     cloudPath: `${prefix}/portrait.${image.extension}`,
@@ -127,7 +126,7 @@ async function addEntry(body) {
     sourceFileId = uploadedSource.fileID;
   }
   const record = {
-    ...reserved,
+    ...reservedFields,
     status: 'ready',
     imageFileId: uploaded.fileID,
     sourceImageFileId: sourceFileId,
@@ -139,7 +138,7 @@ async function addEntry(body) {
     poseTraceVersion: 2,
     readyAt: Date.now(),
   };
-  await photos.doc(body.id).set({ data: record });
+  await photos.doc(body.id).set(record);
   return response(201, (await temporaryUrls([{ _id: body.id, ...record }], true))[0]);
 }
 
@@ -175,6 +174,9 @@ exports.main = async (event) => {
     return response(404, { error: 'Not found' });
   } catch (error) {
     console.error(error);
-    return response(500, { error: 'Photo service failed' });
+    return response(500, {
+      error: 'Photo service failed',
+      detail: error instanceof Error ? error.message : String(error),
+    });
   }
 };

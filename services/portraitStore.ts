@@ -100,7 +100,10 @@ function portraitToDraft(record: PortraitRecord): WallEntrySubmission {
   return {
     id: record.id,
     imageUrl: record.imageData,
-    sourceImageUrl: record.sourceImageData,
+    // CloudBase HTTP functions have a limited request body. Upload the final
+    // framed portrait only; sending the full-resolution source as well can
+    // exceed the gateway limit and leaves both wall and QR unavailable.
+    sourceImageUrl: undefined,
     primaryEnergy: record.primary,
     secondaryDimension: record.secondary,
     narrativeLine: record.narrative,
@@ -109,6 +112,25 @@ function portraitToDraft(record: PortraitRecord): WallEntrySubmission {
     poseTraceVersion: 2,
     requestedShortCode: record.shortCode,
   };
+}
+
+function cloudPortraitDataUrl(source: string) {
+  return new Promise<string>((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => {
+      const maxSide = 640;
+      const scale = Math.min(1, maxSide / Math.max(image.width, image.height));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(image.width * scale));
+      canvas.height = Math.max(1, Math.round(image.height * scale));
+      const context = canvas.getContext('2d');
+      if (!context) return reject(new Error('无法压缩云端照片。'));
+      context.drawImage(image, 0, 0, canvas.width, canvas.height);
+      resolve(canvas.toDataURL('image/jpeg', 0.3));
+    };
+    image.onerror = () => reject(new Error('无法读取待上传照片。'));
+    image.src = source;
+  });
 }
 
 export async function listWallEntries(): Promise<WallEntry[]> {
@@ -124,6 +146,9 @@ export async function listWallEntries(): Promise<WallEntry[]> {
 }
 
 export async function reserveWallCode(id: string): Promise<string> {
+  if (isCloudSite) {
+    throw new Error('腾讯云页面不是拍照端，请打开 http://localhost:3000/booth');
+  }
   const reservations = readLocalReservations();
   if (reservations[id]) return reservations[id];
   try {
@@ -156,21 +181,32 @@ export async function reserveWallCode(id: string): Promise<string> {
 }
 
 export async function publishPortrait(record: PortraitRecord): Promise<WallEntry> {
+  if (isCloudSite) {
+    throw new Error('腾讯云页面不是拍照端，请打开 http://localhost:3000/booth');
+  }
   const draft = portraitToDraft(record);
   try {
+    const cloudImageUrl = requiresCloudUpload
+      ? await cloudPortraitDataUrl(draft.imageUrl)
+      : draft.imageUrl;
     const response = await fetch(apiUrl('/entries'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(draft),
+      body: JSON.stringify({ ...draft, imageUrl: cloudImageUrl }),
     });
-    if (!response.ok) throw new Error('Unable to add portrait to the wall');
+    if (!response.ok) {
+      const detail = await response.text();
+      throw new Error(`云端上传失败（${response.status}）：${detail || '未知错误'}`);
+    }
     const entry = (await response.json()) as WallEntry;
     writeLocal(upsert(readLocal(), entry));
     channel?.postMessage(entry);
     return entry;
-  } catch {
+  } catch (cause) {
     if (requiresCloudUpload) {
-      throw new Error('照片未能上传腾讯云，请检查网络后重新拍摄。');
+      throw cause instanceof Error
+        ? cause
+        : new Error('照片未能上传腾讯云，请检查网络后重新拍摄。');
     }
     // Preserve the existing same-device fallback: a temporary server outage
     // must not leave the result-page action stuck in its publishing state.

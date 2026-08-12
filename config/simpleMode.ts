@@ -20,7 +20,7 @@ export const simpleMode = {
 
   countdownSeconds: 3,
   photoPreviewMs: 3200,
-  resultHoldMs: 5000,
+  resultHoldMs: 60_000,
   cooldownMs: 3000,
 
   allowManualShutter: true,

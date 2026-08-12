@@ -5,7 +5,7 @@ import fs from "fs";
 import os from "os";
 import http from "http";
 import https from "https";
-import { execFile } from "child_process";
+import { execFile, spawn } from "child_process";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
 import { WebSocket, WebSocketServer } from "ws";
@@ -91,19 +91,44 @@ async function startServer() {
   const wallRepository = new WallRepository(wallDataFile);
   const uploadToken = process.env.PHOTO_BOOTH_UPLOAD_TOKEN || '';
   const useCloudBase = process.env.PHOTO_BOOTH_CLOUD_SYNC === 'true';
+  const cloudProxyUrl = process.env.PHOTO_BOOTH_HTTPS_PROXY || '';
   let wallWebSocket: WebSocketServer | null = null;
 
-  const cloudBaseRequest = async (
-    pathname: string,
-    init?: RequestInit,
-  ) =>
-    fetch(`${CLOUDBASE_PHOTO_API}${pathname}`, {
-      ...init,
-      headers: {
-        'Content-Type': 'application/json',
-        ...(uploadToken ? { 'X-Photo-Booth-Token': uploadToken } : {}),
-      },
+  const cloudBaseRequest = async (pathname: string, init?: RequestInit) => {
+    const target = `${CLOUDBASE_PHOTO_API}${pathname}`;
+    const body = typeof init?.body === 'string' ? init.body : undefined;
+    return new Promise<{ status: number; text: () => Promise<string> }>((resolve, reject) => {
+      const args = [
+        '--silent', '--show-error', '--write-out', '\n%{http_code}',
+        '--request', init?.method || 'GET',
+        '--header', 'Content-Type: application/json',
+        '--header', 'Expect:',
+        ...(cloudProxyUrl ? ['--proxy', cloudProxyUrl] : []),
+        ...(uploadToken ? ['--header', `X-Photo-Booth-Token: ${uploadToken}`] : []),
+        ...(body ? ['--data-binary', '@-'] : []),
+        target,
+      ];
+      const request = spawn('curl', args, { stdio: ['pipe', 'pipe', 'pipe'] });
+      const stdout: Buffer[] = [];
+      const stderr: Buffer[] = [];
+      request.stdout.on('data', (chunk) => stdout.push(Buffer.from(chunk)));
+      request.stderr.on('data', (chunk) => stderr.push(Buffer.from(chunk)));
+      request.on('error', reject);
+      request.on('close', (code) => {
+        const output = Buffer.concat(stdout).toString('utf8');
+        const split = output.lastIndexOf('\n');
+        const value = split >= 0 ? output.slice(0, split) : output;
+        const status = Number(split >= 0 ? output.slice(split + 1) : 0);
+        if (code !== 0 || !status) {
+          reject(new Error(Buffer.concat(stderr).toString('utf8') || 'Cloud request failed'));
+          return;
+        }
+        resolve({ status, text: async () => value });
+      });
+      if (body) request.stdin.end(body);
+      else request.stdin.end();
     });
+  };
 
   const requireUploadToken: express.RequestHandler = (req, res, next) => {
     // In cloud-sync mode the browser talks only to localhost. The local Node
@@ -272,10 +297,14 @@ async function startServer() {
 
   app.post("/api/wall/entries", requireUploadToken, async (req, res) => {
     if (useCloudBase) {
+      console.log(
+        `[cloud-upload] entry=${req.body?.id || 'unknown'} bytes=${Buffer.byteLength(JSON.stringify(req.body || {}))}`,
+      );
       const remote = await cloudBaseRequest('/entries', {
         method: 'POST',
         body: JSON.stringify(req.body),
       });
+      console.log(`[cloud-upload] status=${remote.status}`);
       return res.status(remote.status).send(await remote.text());
     }
     if (!isWallEntryDraft(req.body)) {

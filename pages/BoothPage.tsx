@@ -87,6 +87,8 @@ export default function BoothPage() {
   const cameraRef = useRef<BrowserCameraService | null>(null);
   const controllerRef = useRef<InteractionController | null>(null);
   const generationStartedRef = useRef(false);
+  const capturedPoseTraceRef = useRef<PoseTrace[]>([]);
+  const captureEngineRef = useRef<InteractionEngineSnapshot | null>(null);
   const debug = useMemo(
     () => new URLSearchParams(window.location.search).get('debug') === 'true',
     [],
@@ -103,9 +105,11 @@ export default function BoothPage() {
     generationStartedRef.current = false;
     setCapturedImage(null);
     setCapturedPoseTrace([]);
+    capturedPoseTraceRef.current = [];
     setPortrait(null);
     setClaimQr('');
     setError('');
+    captureEngineRef.current = null;
     controllerRef.current?.reset();
   }, []);
 
@@ -159,23 +163,24 @@ export default function BoothPage() {
     setCapturedPoseTrace([]);
     setPortrait(null);
     setClaimQr('');
-    setError('');
-  }, [state]);
+    if (!error) setError('');
+  }, [error, state]);
 
   useEffect(() => {
     if (state !== 'CAPTURE') return;
     let cancelled = false;
     const captureSnapshot = controllerRef.current?.getSnapshot();
+    captureEngineRef.current = captureSnapshot ?? null;
     const captureVideo = videoRef.current;
-    setCapturedPoseTrace(
-      captureSnapshot?.frame && captureVideo
+    const poseTrace = captureSnapshot?.frame && captureVideo
         ? capturePoseTrace(
             captureSnapshot.frame.people,
             captureVideo,
             captureSnapshot.initiatorId,
           )
-        : [],
-    );
+        : [];
+    capturedPoseTraceRef.current = poseTrace;
+    setCapturedPoseTrace(poseTrace);
     const capture = async () => {
       try {
         const camera = cameraRef.current;
@@ -206,18 +211,21 @@ export default function BoothPage() {
     ) {
       return;
     }
-    const generationEngine = controllerRef.current?.getSnapshot();
+    const generationEngine = captureEngineRef.current;
     if (!generationEngine) return;
     generationStartedRef.current = true;
     let cancelled = false;
 
     const generate = async () => {
       try {
+        const capturedPrimary = generationEngine.primary ?? 'Intelligence';
+        const capturedSecondary = generationEngine.secondary ?? 'Precision';
+        const capturedMode = generationEngine.mode ?? 'Single';
         const metadata: NarrativeMetadata = {
-          primaryEnergy: primary,
-          secondaryDimension: secondary,
+          primaryEnergy: capturedPrimary,
+          secondaryDimension: capturedSecondary,
           groupSize: Math.max(1, generationEngine.features.personCount),
-          groupMode: generationEngine.mode,
+          groupMode: capturedMode,
           behavior: {
             groupCohesion: generationEngine.features.groupCohesion,
             movementIntensity: generationEngine.features.movementIntensity,
@@ -227,22 +235,22 @@ export default function BoothPage() {
           },
         };
         const narrative = await generateNarrative(metadata).catch(() =>
-          getFallbackNarrative(primary, secondary),
+          getFallbackNarrative(capturedPrimary, capturedSecondary),
         );
         const reading: BehaviorReading = {
           peopleCount: metadata.groupSize,
-          mode,
+          mode: capturedMode,
           movement: generationEngine.features.movementIntensity,
           stability: generationEngine.features.stability,
           cohesion: generationEngine.features.groupCohesion,
-          secondary,
+          secondary: capturedSecondary,
         };
         const result = await renderFuturePortrait(
           capturedImage,
-          primary,
+          capturedPrimary,
           reading,
           narrative.response,
-          capturedPoseTrace,
+          capturedPoseTraceRef.current,
         );
         if (cancelled) return;
         const shortCode = await reserveWallCode(result.id);
@@ -279,7 +287,7 @@ export default function BoothPage() {
     return () => {
       cancelled = true;
     };
-  }, [state, capturedImage, capturedPoseTrace, mode, primary, secondary]);
+  }, [state, capturedImage]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -383,6 +391,7 @@ export default function BoothPage() {
       className="booth-v1"
       style={{ '--active': activeColor } as React.CSSProperties}
     >
+      <div className="local-booth-badge">本地拍照端 · CLOUD SYNC</div>
       <section className="ai-mirror">
         <div className="kv-backdrop" aria-hidden="true" />
         <div className="kv-logo" aria-hidden="true">
@@ -478,6 +487,12 @@ export default function BoothPage() {
             <div className="photo-wall-target" aria-hidden="true">
               <span>现场大屏</span>
               <i />
+            </div>
+          )}
+
+          {state === 'CAPTURE' && capturedImage && !error && (
+            <div className="photo-upload-status" role="status">
+              正在生成并上传照片，请稍候…
             </div>
           )}
 

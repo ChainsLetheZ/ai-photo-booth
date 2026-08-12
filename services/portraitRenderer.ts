@@ -143,7 +143,7 @@ export async function renderFuturePortrait(
   return {
     id: crypto.randomUUID(),
     sourceImageData: capturedImage,
-    imageData: canvas.toDataURL('image/jpeg', 0.92),
+    imageData: canvas.toDataURL('image/jpeg', 0.82),
     timestamp: Date.now(),
     primary,
     secondary: reading.secondary,

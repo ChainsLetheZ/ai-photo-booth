@@ -18,6 +18,7 @@ import {
 import { simpleMode } from '../config/simpleMode';
 import { ENERGY_CONFIG, EVENT } from '../constants';
 import PerceptionDebugOverlay from '../debug/PerceptionDebugOverlay';
+import TransparentCharacterVideo from '../components/TransparentCharacterVideo';
 import {
   InteractionController,
   type InteractionEngineSnapshot,
@@ -45,7 +46,7 @@ interface GestureTask {
 const GESTURE_TASK: GestureTask = {
   icon: '✋',
   name: '任选一个手势',
-  lines: ['挥手、举手、比耶或点赞，', '任选一个开始吧！'],
+  lines: ['轮到你啦！挥挥手、举手，', '或者比个耶、点个赞都可以。'],
 };
 
 const assetBase = import.meta.env?.BASE_URL ?? '/';
@@ -345,36 +346,36 @@ export default function BoothPage() {
   let dialogueLines: [string, string?] | null = null;
   if (state === 'IDLE') {
     speaker = 'left';
-    dialogueLines = ['来，站进取景框里！', '我来帮你们拍一张。'];
+    dialogueLines = ['嗨，来这边！', '站进取景框，我给你拍一张。'];
   } else if (state === 'PERCEIVING') {
     if (introActive) {
       speaker = 'left';
-      dialogueLines = ['看到啦！', '准备好了吗？'];
+      dialogueLines = ['看到你啦！', '再往中间一点点，就很完美。'];
     } else if (guidanceActive) {
       speaker = 'left';
       dialogueLines = tooManyPeople
         ? ['人数有点多，', '我们分两组拍吧！']
         : capturePeopleCount > 0
-          ? ['大家靠近一些，', '别掉出取景框。']
-          : ['再靠近一点，', '站进取景框就好！'];
+          ? ['大家再靠近一点点，', '对，就站在一起！']
+          : ['再往前走一点，', '让我看清你！'];
     } else {
       speaker = 'right';
       dialogueLines =
         taskPhaseMs < simpleMode.iSeeYouMs
-          ? ['接头暗号来了！', '任选一个手势开始吧！']
+          ? ['嘿，拍照前先和我打个招呼！', '给我看一个你喜欢的手势吧。']
           : GESTURE_TASK.lines;
     }
   } else if (state === 'LOCKED') {
     if (lockedConfirming) {
       speaker = 'right';
-      dialogueLines = ['暗号正确！'];
+      dialogueLines = ['收到！这个姿势很不错！'];
     } else {
       speaker = 'left';
-      dialogueLines = ['很好，就这样！', '保持住——'];
+      dialogueLines = ['太好了，就保持这个姿势！', '看这里，我来数：3、2、1！'];
     }
   } else if (state === 'RESULT') {
     speaker = 'left';
-    dialogueLines = ['咔嚓！未来照片已发送！', '去现场大屏里找找自己吧！'];
+    dialogueLines = ['拍好啦！你的未来照片已经出发。', '扫二维码带走，也去大屏找找自己吧！'];
   }
 
   return (
@@ -391,6 +392,23 @@ export default function BoothPage() {
           <h2>竞速智联　共塑致远</h2>
           <p>Accelerate Innovation　Go Beyond Together</p>
         </div>
+
+        <div className={`blink-slot blink-left state-${state.toLowerCase()}`}>
+          <TransparentCharacterVideo
+            key={leftVideoSrc}
+            className="blink-video blink-video-left"
+            src={leftVideoSrc}
+          />
+        </div>
+
+        {speaker === 'left' && dialogueLines && state !== 'COUNTDOWN' && (
+          <div
+            className={`blink-dialogue speaker-left state-${state.toLowerCase()}`}
+            key={`${state}-left`}
+          >
+            {dialogueLines.map((line) => <p key={line}>{line}</p>)}
+          </div>
+        )}
 
         <div className="kv-portal">
           <video ref={videoRef} muted playsInline className="camera-feed" />
@@ -413,39 +431,19 @@ export default function BoothPage() {
             <i className="corner bottom-right" />
           </div>
 
-          <div className={`blink-slot blink-left state-${state.toLowerCase()}`}>
-            <video
-              key={leftVideoSrc}
-              className="blink-video blink-video-left"
-              src={leftVideoSrc}
-              autoPlay
-              loop
-              muted
-              playsInline
-              preload="auto"
-              aria-hidden="true"
-            />
-          </div>
-
           <div className={`blink-slot blink-right ${showRightBlink ? 'is-visible' : ''}`}>
             {showRightBlink && (
-              <video
+              <TransparentCharacterVideo
                 className="blink-video blink-video-right"
                 src={BOOTH_VIDEO.gestureDemo}
-                autoPlay
-                loop
-                muted
-                playsInline
-                preload="auto"
-                aria-hidden="true"
               />
             )}
           </div>
 
-          {speaker && dialogueLines && state !== 'COUNTDOWN' && (
+          {speaker === 'right' && dialogueLines && state !== 'COUNTDOWN' && (
             <div
-              className={`blink-dialogue speaker-${speaker} state-${state.toLowerCase()}`}
-              key={`${state}-${speaker}`}
+              className={`blink-dialogue speaker-right state-${state.toLowerCase()}`}
+              key={`${state}-right`}
             >
               {dialogueLines.map((line) => (
                 <p key={line}>{line}</p>

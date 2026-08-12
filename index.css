@@ -2314,7 +2314,7 @@ button:focus-visible, a:focus-visible { outline: 3px solid #00a8e0; outline-offs
 .blink-slot {
   position: absolute;
   z-index: 7;
-  overflow: hidden;
+  overflow: visible;
   bottom: 3.5%;
   display: flex;
   width: 18%;
@@ -2323,9 +2323,9 @@ button:focus-visible, a:focus-visible { outline: 3px solid #00a8e0; outline-offs
   flex-direction: column;
   align-items: center;
   justify-content: flex-end;
-  padding: 0 6px 10px;
-  border: 1px dashed rgba(255,255,255,.5);
-  background: linear-gradient(180deg, rgba(6,18,26,.08), rgba(6,18,26,.7));
+  padding: 0;
+  border: 0;
+  background: transparent;
   color: rgba(255,255,255,.72);
   text-align: center;
   pointer-events: none;
@@ -2344,14 +2344,31 @@ button:focus-visible, a:focus-visible { outline: 3px solid #00a8e0; outline-offs
   display: block;
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
 }
 
-.blink-left { left: 1.5%; }
-.blink-video-left { object-position: center; }
+.blink-video-source {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.blink-left {
+  z-index: 5;
+  left: 2.5%;
+  bottom: 0;
+  width: 31%;
+  height: 46%;
+}
+.blink-video-left { object-position: center bottom; }
 
 .blink-right {
-  right: 1.5%;
+  right: 0;
+  bottom: 0;
+  width: 25%;
+  height: 32%;
   opacity: 0;
   transform: translateX(42%);
   transition: opacity .28s ease, transform .38s ease;
@@ -2363,7 +2380,7 @@ button:focus-visible, a:focus-visible { outline: 3px solid #00a8e0; outline-offs
 }
 
 /* The gesture tutorial is landscape footage with the character on the right. */
-.blink-video-right { object-position: 72% center; }
+.blink-video-right { object-position: right bottom; }
 
 .blink-dialogue {
   position: absolute;
@@ -2388,12 +2405,46 @@ button:focus-visible, a:focus-visible { outline: 3px solid #00a8e0; outline-offs
 
 .blink-dialogue.speaker-left,
 .blink-dialogue.speaker-right {
-  right: 2.5%;
-  left: auto;
+  top: auto;
 }
 
-/* Keep the upper-right photo-wall destination visible beside the result copy. */
-.blink-dialogue.state-result { right: 14%; }
+.blink-dialogue.speaker-left {
+  right: auto;
+  left: 3%;
+  top: auto;
+  bottom: 45%;
+  max-width: 34%;
+}
+
+.blink-dialogue.speaker-right {
+  right: 1.5%;
+  bottom: 31%;
+  left: auto;
+  max-width: 48%;
+}
+
+.blink-dialogue.speaker-left::after,
+.blink-dialogue.speaker-right::after {
+  position: absolute;
+  bottom: -12px;
+  display: block;
+  width: 22px;
+  height: 22px;
+  border-right: 1px solid rgba(255,255,255,.72);
+  border-bottom: 1px solid rgba(255,255,255,.72);
+  background: rgba(255,255,255,.94);
+  content: '';
+  transform: rotate(45deg);
+}
+
+.blink-dialogue.speaker-left::after { left: 34%; }
+.blink-dialogue.speaker-right::after { right: 14%; }
+
+.blink-dialogue.state-result {
+  right: auto;
+  left: 3%;
+  bottom: 45%;
+}
 
 .blink-dialogue p {
   margin: 0;
@@ -2572,7 +2623,9 @@ button:focus-visible, a:focus-visible { outline: 3px solid #00a8e0; outline-offs
   }
   .blink-dialogue p { font-size: 16px; }
   .blink-dialogue.speaker-left,
-  .blink-dialogue.speaker-right { right: 3%; }
+  .blink-dialogue.speaker-right { max-width: 68%; }
+  .blink-dialogue.speaker-left { left: 2%; bottom: 46%; }
+  .blink-dialogue.speaker-right { right: 1%; bottom: 34%; }
   .blink-slot { width: 31%; min-width: 0; }
   .blink-viewfinder { left: 18%; width: 64%; }
   .gesture-task { min-height: 38px; }

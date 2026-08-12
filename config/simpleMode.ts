@@ -1,3 +1,5 @@
+const assetBase = import.meta.env?.BASE_URL ?? '/';
+
 export const simpleMode = {
   enabled: true,
 
@@ -35,8 +37,8 @@ export const simpleModeGesture = {
 
 export const handGesture = {
   enabled: true,
-  wasmPath: '/mediapipe/wasm',
-  modelPath: '/mediapipe/models/gesture_recognizer.task',
+  wasmPath: `${assetBase}mediapipe/wasm`,
+  modelPath: `${assetBase}mediapipe/models/gesture_recognizer.task`,
   recognizeHz: 4,
   // How far below the shoulder a wrist may sit and still start MediaPipe,
   // measured in shoulder widths. The gate exists to keep inference at zero

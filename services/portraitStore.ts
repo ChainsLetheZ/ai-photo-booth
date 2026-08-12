@@ -18,6 +18,7 @@ const CLOUDBASE_API =
 const CLOUDBASE_SITE =
   'https://uxgs-d4gv4c7qr60f22622-1317468313.tcloudbaseapp.com/ai-photo-booth/index.html';
 const isCloudSite = window.location.hostname.endsWith('tcloudbaseapp.com');
+const requiresCloudUpload = runtimeEnv.VITE_CLOUDBASE_ENABLED === 'true';
 
 function apiUrl(pathname: string) {
   return isCloudSite ? `${CLOUDBASE_API}${pathname}` : pathname;
@@ -168,6 +169,9 @@ export async function publishPortrait(record: PortraitRecord): Promise<WallEntry
     channel?.postMessage(entry);
     return entry;
   } catch {
+    if (requiresCloudUpload) {
+      throw new Error('照片未能上传腾讯云，请检查网络后重新拍摄。');
+    }
     // Preserve the existing same-device fallback: a temporary server outage
     // must not leave the result-page action stuck in its publishing state.
     const local = readLocal();

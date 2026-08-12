@@ -147,16 +147,16 @@ export const interactionConfig = {
     // `?f16=on` restores the old behaviour for one page load.
     forceF16Textures: false,
     scriptUrls: [
-      '/vendor/movenet/tf-core.min.js',
-      '/vendor/movenet/tf-converter.min.js',
-      '/vendor/movenet/tf-backend-webgl.min.js',
-      '/vendor/movenet/pose-detection.min.js',
+      `${assetBase}vendor/movenet/tf-core.min.js`,
+      `${assetBase}vendor/movenet/tf-converter.min.js`,
+      `${assetBase}vendor/movenet/tf-backend-webgl.min.js`,
+      `${assetBase}vendor/movenet/pose-detection.min.js`,
     ],
   },
   mediaPipe: {
-    wasmPath: '/mediapipe/wasm',
-    poseModelPath: '/mediapipe/models/pose_landmarker_lite.task',
-    handModelPath: '/mediapipe/models/hand_landmarker.task',
+    wasmPath: `${assetBase}mediapipe/wasm`,
+    poseModelPath: `${assetBase}mediapipe/models/pose_landmarker_lite.task`,
+    handModelPath: `${assetBase}mediapipe/models/hand_landmarker.task`,
     delegate: 'GPU' as const,
     maxHands: 8,
     minimumPoseConfidence: 0.58,

@@ -134,18 +134,48 @@ async function startServer() {
     });
   };
 
+  const delay = (milliseconds: number) =>
+    new Promise((resolve) => setTimeout(resolve, milliseconds));
+
+  const isBoschProxyPage = (value: string) =>
+    /rbins\.bosch\.com|This site is forbidden inside Bosch|Network Error \(tcp_error\)/i.test(value);
+
   const cloudBaseRequest = async (pathname: string, init?: RequestInit) => {
     const target = `${CLOUDBASE_PHOTO_API}${pathname}`;
     const body = typeof init?.body === 'string' ? init.body : undefined;
-    return curlRequest(
-      target,
-      init?.method || 'GET',
-      [
-        'Content-Type: application/json',
-        ...(uploadToken ? [`X-Photo-Booth-Token: ${uploadToken}`] : []),
-      ],
-      body,
-    );
+    let lastError: unknown;
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      try {
+        const result = await curlRequest(
+          target,
+          init?.method || 'GET',
+          [
+            'Content-Type: application/json',
+            ...(uploadToken ? [`X-Photo-Booth-Token: ${uploadToken}`] : []),
+          ],
+          body,
+        );
+        const value = await result.text();
+        const retryable = [502, 503, 504].includes(result.status);
+        if (!retryable || attempt === 3) {
+          if (isBoschProxyPage(value)) {
+            return {
+              status: 503,
+              text: async () => JSON.stringify({
+                error: 'Bosch corporate proxy blocked Tencent Cloud',
+                detail: '请切换非 Bosch 网络，或请 IT 放行 CloudBase API 域名。',
+              }),
+            };
+          }
+          return { status: result.status, text: async () => value };
+        }
+      } catch (error) {
+        lastError = error;
+        if (attempt === 3) throw error;
+      }
+      await delay(attempt * 500);
+    }
+    throw lastError;
   };
 
   const decodePortrait = (value: string) => {
@@ -171,21 +201,41 @@ async function startServer() {
     descriptor: CloudUploadDescriptor,
     image: { mimeType: string; buffer: Buffer },
   ) => {
-    const result = await curlRequest(
-      descriptor.url,
-      'PUT',
-      [
-        `Authorization: ${descriptor.authorization}`,
-        `X-Cos-Security-Token: ${descriptor.token}`,
-        `X-Cos-Meta-Fileid: ${descriptor.cosFileId}`,
-        `key: ${encodeURIComponent(descriptor.cloudPath)}`,
-        `Content-Type: ${image.mimeType}`,
-      ],
-      image.buffer,
-    );
-    if (result.status < 200 || result.status >= 300) {
-      throw new Error(`Cloud storage upload failed (${result.status}): ${await result.text()}`);
+    console.log(`[cloud-upload] storage-host=${new URL(descriptor.url).hostname}`);
+    let lastError: unknown;
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      try {
+        const result = await curlRequest(
+          descriptor.url,
+          'PUT',
+          [
+            `Authorization: ${descriptor.authorization}`,
+            `X-Cos-Security-Token: ${descriptor.token}`,
+            `X-Cos-Meta-Fileid: ${descriptor.cosFileId}`,
+            `key: ${encodeURIComponent(descriptor.cloudPath)}`,
+            `Content-Type: ${image.mimeType}`,
+          ],
+          image.buffer,
+        );
+        const value = await result.text();
+        if (result.status >= 200 && result.status < 300) return;
+        if (isBoschProxyPage(value)) {
+          throw new Error('Bosch corporate proxy blocked Tencent Cloud storage. 请切换非 Bosch 网络或申请域名白名单。');
+        }
+        lastError = new Error(`Cloud storage upload failed (${result.status}): ${value}`);
+        if (![502, 503, 504].includes(result.status)) throw lastError;
+      } catch (error) {
+        lastError = error;
+        if (
+          error instanceof Error &&
+          /Bosch corporate proxy blocked/.test(error.message)
+        ) {
+          throw error;
+        }
+      }
+      if (attempt < 3) await delay(attempt * 500);
     }
+    throw lastError;
   };
 
   const requireUploadToken: express.RequestHandler = (req, res, next) => {

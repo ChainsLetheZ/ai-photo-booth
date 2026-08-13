@@ -1,4 +1,10 @@
 import { wallConfig } from '../config/wallConfig';
+import {
+  alibabaCloudApiUrl,
+  configuredPublicAppUrl,
+  isAlibabaCloudSite,
+  requiresAlibabaCloudUpload,
+} from '../config/alibabaCloud';
 import type {
   PortraitRecord,
   WallEntry,
@@ -12,16 +18,8 @@ const channel =
     ? new BroadcastChannel('bosch-collective-wall')
     : null;
 
-const runtimeEnv: Record<string, string | undefined> = import.meta.env ?? {};
-const CLOUDBASE_API =
-  'https://uxgs-d4gv4c7qr60f22622-1317468313.ap-shanghai.app.tcloudbase.com/photo-booth';
-const CLOUDBASE_SITE =
-  'https://uxgs-d4gv4c7qr60f22622-1317468313.tcloudbaseapp.com/ai-photo-booth/index.html';
-const isCloudSite = window.location.hostname.endsWith('tcloudbaseapp.com');
-const requiresCloudUpload = runtimeEnv.VITE_CLOUDBASE_ENABLED === 'true';
-
 function apiUrl(pathname: string) {
-  if (isCloudSite) return `${CLOUDBASE_API}${pathname}`;
+  if (isAlibabaCloudSite) return alibabaCloudApiUrl(pathname);
   if (pathname === '/entries') return '/api/wall/entries';
   if (pathname === '/codes') return '/api/wall/codes';
   return pathname;
@@ -33,14 +31,11 @@ function syncWebSocketUrl() {
 }
 
 export function publicPhotoUrl(claimToken: string) {
-  if (runtimeEnv.VITE_PUBLIC_APP_URL) {
-    return `${runtimeEnv.VITE_PUBLIC_APP_URL.replace(/\/$/, '')}?photo=${encodeURIComponent(claimToken)}`;
+  const configured = configuredPublicAppUrl();
+  if (configured) {
+    return `${configured}?photo=${encodeURIComponent(claimToken)}`;
   }
-  if (runtimeEnv.VITE_CLOUDBASE_ENABLED === 'true') {
-    return `${CLOUDBASE_SITE}?photo=${encodeURIComponent(claimToken)}`;
-  }
-  const publicBase = (runtimeEnv.VITE_PUBLIC_APP_URL || window.location.origin)
-    .replace(/\/$/, '');
+  const publicBase = window.location.origin.replace(/\/$/, '');
   return `${publicBase}/photo/${encodeURIComponent(claimToken)}`;
 }
 
@@ -127,8 +122,8 @@ export async function listWallEntries(): Promise<WallEntry[]> {
 }
 
 export async function reserveWallCode(id: string): Promise<string> {
-  if (isCloudSite) {
-    throw new Error('腾讯云页面不是拍照端，请打开 http://localhost:3000/booth');
+  if (isAlibabaCloudSite) {
+    throw new Error('阿里云页面不是拍照端，请打开 http://localhost:3000/booth');
   }
   const reservations = readLocalReservations();
   if (reservations[id]) return reservations[id];
@@ -162,8 +157,8 @@ export async function reserveWallCode(id: string): Promise<string> {
 }
 
 export async function publishPortrait(record: PortraitRecord): Promise<WallEntry> {
-  if (isCloudSite) {
-    throw new Error('腾讯云页面不是拍照端，请打开 http://localhost:3000/booth');
+  if (isAlibabaCloudSite) {
+    throw new Error('阿里云页面不是拍照端，请打开 http://localhost:3000/booth');
   }
   const draft = portraitToDraft(record);
   try {
@@ -181,10 +176,10 @@ export async function publishPortrait(record: PortraitRecord): Promise<WallEntry
     channel?.postMessage(entry);
     return entry;
   } catch (cause) {
-    if (requiresCloudUpload) {
+    if (requiresAlibabaCloudUpload) {
       throw cause instanceof Error
         ? cause
-        : new Error('照片未能上传腾讯云，请检查网络后重新拍摄。');
+        : new Error('照片未能上传阿里云，请检查网络后重新拍摄。');
     }
     // Preserve the existing same-device fallback: a temporary server outage
     // must not leave the result-page action stuck in its publishing state.
@@ -213,7 +208,7 @@ export function subscribeToWallEntries(
   onSync: (entries: WallEntry[]) => void,
   onConnectionChange?: (connected: boolean) => void,
 ) {
-  if (isCloudSite) {
+  if (isAlibabaCloudSite) {
     let stopped = false;
     let known = new Set<string>();
     const poll = async () => {

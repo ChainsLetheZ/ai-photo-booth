@@ -1,9 +1,9 @@
 {
-  "name": "photo-booth-api",
+  "name": "photo-booth-fc-api",
   "version": "1.0.0",
   "private": true,
   "main": "index.js",
   "dependencies": {
-    "@cloudbase/node-sdk": "^3.10.0"
+    "ali-oss": "^6.23.0"
   }
 }

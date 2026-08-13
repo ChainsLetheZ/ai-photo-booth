@@ -1,0 +1,38 @@
+edition: 3.0.0
+name: ai-photo-booth
+access: default
+
+vars:
+  region: cn-shanghai
+
+resources:
+  photo_booth_api:
+    component: fc3
+    props:
+      region: ${vars.region}
+      functionName: photo-booth-api
+      description: Bosch Supplier Day photo wall API
+      runtime: nodejs20
+      code: ./
+      handler: index.handler
+      role: ${env('PHOTO_BOOTH_FC_ROLE_ARN')}
+      memorySize: 256
+      timeout: 30
+      internetAccess: true
+      logConfig: auto
+      environmentVariables:
+        PHOTO_BOOTH_OSS_REGION: oss-cn-shanghai
+        PHOTO_BOOTH_OSS_BUCKET: replace-with-your-private-bucket
+        PHOTO_BOOTH_OSS_PREFIX: photo-booth
+        PHOTO_BOOTH_UPLOAD_TOKEN: replace-with-a-long-random-secret
+      triggers:
+        - triggerName: public-http
+          triggerType: http
+          qualifier: LATEST
+          triggerConfig:
+            authType: anonymous
+            disableURLInternet: false
+            methods:
+              - GET
+              - POST
+              - OPTIONS

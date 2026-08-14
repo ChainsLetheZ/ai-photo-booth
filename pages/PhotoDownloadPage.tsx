@@ -1,5 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import type { WallEntry } from '../types';
+import {
+  isTencentCloudSite,
+  tencentCloudApiUrl,
+} from '../config/tencentCloud';
 
 export default function PhotoDownloadPage() {
   const claimToken =
@@ -8,8 +12,8 @@ export default function PhotoDownloadPage() {
     '';
   const [entry, setEntry] = useState<WallEntry | null>(null);
   const [status, setStatus] = useState<'loading' | 'ready' | 'missing'>('loading');
-  const apiBase = window.location.hostname.endsWith('tcloudbaseapp.com')
-    ? 'https://uxgs-d4gv4c7qr60f22622-1317468313.ap-shanghai.app.tcloudbase.com/photo-booth'
+  const apiBase = isTencentCloudSite
+    ? tencentCloudApiUrl('/photos')
     : '/api/photos';
 
   useEffect(() => {

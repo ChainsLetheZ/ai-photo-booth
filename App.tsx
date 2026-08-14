@@ -5,6 +5,7 @@ import FinalePreviewPage from './pages/FinalePreviewPage';
 import MoveNetBenchmarkPage from './pages/MoveNetBenchmarkPage';
 import WallPage from './pages/WallPage';
 import PhotoDownloadPage from './pages/PhotoDownloadPage';
+import { isTencentCloudSite } from './config/tencentCloud';
 
 type AppRoute = 'benchmark' | 'booth' | 'filters' | 'finale' | 'photo' | 'wall';
 
@@ -23,12 +24,11 @@ function getRouteFromPath(): AppRoute {
 
 const App: React.FC = () => {
   const [route, setRoute] = useState<AppRoute>(getRouteFromPath);
-  const isCloudSite = window.location.hostname.endsWith('tcloudbaseapp.com');
 
   useEffect(() => {
     // Normalize root URL to /booth
     const path = window.location.pathname.replace(/\/+$/, '') || '/';
-    if (path === '/' || path === '') {
+    if (!isTencentCloudSite && (path === '/' || path === '')) {
       window.history.replaceState(null, '', '/booth');
     }
     const onPopState = () => setRoute(getRouteFromPath());
@@ -36,7 +36,7 @@ const App: React.FC = () => {
     return () => window.removeEventListener('popstate', onPopState);
   }, []);
 
-  if (isCloudSite && route === 'booth') {
+  if (isTencentCloudSite && route === 'booth') {
     return (
       <main className="cloud-booth-warning">
         <h1>这里不是拍照端</h1>

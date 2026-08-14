@@ -152,21 +152,7 @@ async function signedUrl(client, method, key, options = {}) {
     queries: options.queries || {},
   };
   if (method !== 'GET' || Object.keys(request.queries).length) {
-    try {
-      console.log(`[photo-booth] signing method=${method} key=${key} v4=${client.options?.authorizationV4 === true}`);
-      const url = await client.signatureUrlV4(method, expires, request, key);
-      console.log(`[photo-booth] signed method=${method} key=${key}`);
-      return url;
-    } catch (error) {
-      console.log('[photo-booth] signing failed', JSON.stringify({
-        name: error?.name,
-        message: error?.message,
-        code: error?.code,
-        status: error?.status,
-        stack: error?.stack,
-      }));
-      throw error;
-    }
+    return client.signatureUrlV4(method, expires, request, key);
   }
   const cacheKey = `${key}:${Math.floor(Date.now() / 1_800_000)}`;
   if (!signedUrlCache.has(cacheKey)) {

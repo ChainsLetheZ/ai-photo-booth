@@ -88,7 +88,7 @@
   filter: blur(var(--card-blur, 0px))
     brightness(calc(1.04 + var(--card-glow, 0) * 0.45))
     saturate(1.15);
-  opacity: calc(1 - var(--kv-pixel-mix, 0));
+  opacity: 1;
 }
 .finale-seq-card::before {
   position: absolute;
@@ -100,19 +100,6 @@
   pointer-events: none;
 }
 
-/* The actual pixel KV: the master artwork is rasterised to exactly 64×36,
-   then enlarged with nearest-neighbour sampling. These are real square pixels,
-   not portrait cards tinted to approximately matching colours. */
-.finale-seq-pixel-kv {
-  position: absolute;
-  z-index: 3;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  opacity: var(--kv-pixel-mix, 0);
-  image-rendering: pixelated;
-  pointer-events: none;
-}
 /* The pulse's response at this card: a brief edge light, not a colour wash. */
 .finale-seq-card::after {
   position: absolute;

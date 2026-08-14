@@ -114,24 +114,14 @@ convergeEnd.cards.forEach((card) => {
   assert.ok(card.opacity > 0.97);
 });
 
-const left = layout.reduce((a, b) => (a.targetX < b.targetX ? a : b));
-const right = layout.reduce((a, b) => (a.targetX > b.targetX ? a : b));
-const glowOf = (timeMs: number, entryIndex: number) =>
-  finaleFrameAt(timeMs, layout).cards.find((card) => card.entryIndex === entryIndex)!.glow;
-assert.ok(
-  glowOf(pulseStart + DEFAULT_FINALE_TIMING.pulseMs * 0.15, left.entryIndex) >
-    glowOf(pulseStart + DEFAULT_FINALE_TIMING.pulseMs * 0.15, right.entryIndex),
-);
 const midScan = finaleFrameAt(
   pulseStart + DEFAULT_FINALE_TIMING.pulseMs / 2,
   layout,
 );
 assert.equal(midScan.kvRevealXUnit, 1);
-assert.ok(midScan.taglineOpacity > 0 && midScan.taglineOpacity < 1);
-assert.ok(
-  glowOf(pulseStart + DEFAULT_FINALE_TIMING.pulseMs * 0.85, right.entryIndex) >
-    glowOf(pulseStart + DEFAULT_FINALE_TIMING.pulseMs * 0.85, left.entryIndex),
-);
+assert.equal(midScan.taglineOpacity, 0);
+assert.equal(midScan.pulseXUnit, null);
+assert.ok(midScan.cards.every((card) => card.glow === 0));
 
 // The sampled KV pixels contract and fade behind a flash before the clean,
 // high-resolution master KV takes over.
@@ -140,9 +130,9 @@ const midRetreat = finaleFrameAt(
   layout,
 );
 midRetreat.cards.forEach((card) => {
-  assert.ok(card.opacity > 0 && card.opacity < 1);
-  assert.ok(card.blurPx > 0);
-  assert.ok(card.scale < 1);
+  assert.ok(card.opacity > 0.99);
+  assert.equal(card.blurPx, 0);
+  assert.equal(card.scale, 1);
 });
 
 const noFlashFrame = finaleFrameAt(taglineStart - 40, layout);
@@ -151,18 +141,18 @@ assert.equal(noFlashFrame.flashOpacity, 0);
 const locked = finaleFrameAt(finaleTotalMs(), layout);
 locked.cards.forEach((card) => {
   const target = layout[card.entryIndex];
-  assert.ok(card.opacity < 0.01);
+  assert.ok(card.opacity > 0.99);
   assert.ok(Math.abs(card.xUnit - target.targetX) < 0.0001);
   assert.ok(Math.abs(card.yUnit - target.targetY) < 0.0001);
-  assert.ok(card.scale < 0.9);
+  assert.equal(card.scale, 1);
 });
-assert.equal(locked.taglineOpacity, 1);
+assert.equal(locked.taglineOpacity, 0);
 assert.equal(locked.kvRevealXUnit, 1);
 assert.equal(locked.flashOpacity, 0);
-assert.ok(locked.haloOpacity > 0 && locked.haloOpacity < 0.5);
+assert.equal(locked.haloOpacity, 0);
 
 const empty = finaleFrameAt(taglineStart, layoutFinaleCards([]));
-assert.equal(empty.taglineOpacity, 1);
-assert.equal(finaleFrameAt(total, layoutFinaleCards([])).taglineOpacity, 1);
+assert.equal(empty.taglineOpacity, 0);
+assert.equal(finaleFrameAt(total, layoutFinaleCards([])).taglineOpacity, 0);
 
-console.log('Wall finale KV pixel tests passed.');
+console.log('Wall finale photo-letterform tests passed.');

@@ -322,7 +322,7 @@ export function finaleFrameAt(
     // Do not reveal the pixel artwork while photos are still visibly large.
     // The dissolve begins only in the final 18% of the camera pullback, when a
     // portrait and one 64×36 KV pixel occupy effectively the same screen size.
-    const pixelMix = easeInOutCubic(clamp((convergeP - 0.82) / 0.18, 0, 1));
+    const pixelMix = 0;
 
     // Pulse: settled at the grid cell; only glow and a small scale bump travel
     // through, driven by distance from the sweep at this instant.
@@ -341,16 +341,15 @@ export function finaleFrameAt(
       1 - easeInOutCubic(clamp((retreatP - 0.42) / 0.58, 0, 1));
     const retreatBlur = retreatEase * 3;
 
-    const inRetreatOrLater = timeMs >= retreatStart;
     return {
       entryIndex: card.entryIndex,
-      xUnit: inRetreatOrLater ? retreatX : x,
-      yUnit: inRetreatOrLater ? retreatY : y,
-      scale: inRetreatOrLater ? retreatScale : pulseScale,
+      xUnit: x,
+      yUnit: y,
+      scale: 1,
       rotationDeg: rotation,
-      opacity: inRetreatOrLater ? retreatOpacity : convergeOpacity,
-      blurPx: inRetreatOrLater ? retreatBlur : 0,
-      glow,
+      opacity: convergeOpacity,
+      blurPx: 0,
+      glow: 0,
       pixelMix,
     };
   });
@@ -375,17 +374,16 @@ export function finaleFrameAt(
     cards: cardFrames,
     fieldOpacity,
     fieldHeat,
-    pulseXUnit:
-      sweepX !== null && timeMs < retreatStart ? clamp(sweepX, 0, 1) : null,
+    pulseXUnit: null,
     flashOpacity: 0,
     taglineBlurPx: 0,
     // The full-resolution KV dissolves over the complete scan duration. The
     // beam is only an accent; it no longer acts as a hard reveal boundary.
     // Hold the completed pixel KV briefly so it reads as an intentional frame,
     // then dissolve gently to the master rather than changing immediately.
-    taglineOpacity: easeInOutCubic(clamp((pulseP - 0.25) / 0.75, 0, 1)),
+    taglineOpacity: 0,
     taglineScale: 1,
-    haloOpacity: taglineEase * 0.32,
+    haloOpacity: 0,
     cameraScale,
     cameraXUnit: cameraStartX * (1 - convergeEase),
     cameraYUnit: cameraStartY * (1 - convergeEase),

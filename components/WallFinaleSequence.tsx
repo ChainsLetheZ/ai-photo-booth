@@ -1,4 +1,4 @@
-import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { ENERGY_CONFIG } from '../constants';
 import {
   DEFAULT_FINALE_TIMING,
@@ -12,8 +12,6 @@ import {
 } from '../services/wallFinaleSequence';
 import type { PrimaryEnergy, WallEntry } from '../types';
 import './wallFinaleSequence.css';
-
-const assetBase = import.meta.env?.BASE_URL ?? '/';
 
 export { finaleTotalMs as WALL_FINALE_TOTAL_MS };
 
@@ -84,63 +82,34 @@ function taglineLines(tagline: string) {
   return copy.length === 8 ? [copy.slice(0, 4), copy.slice(4)] : [copy];
 }
 
-/** Samples the real 16:9 master KV into a photo-pixel mosaic. */
-function rasteriseKv(source: string, count: number): Promise<FinalePixelTarget[]> {
-  if (count <= 0 || typeof document === 'undefined') return Promise.resolve([]);
-  return new Promise((resolve) => {
-    const image = new Image();
-    image.onload = () => {
-      const columns = Math.max(1, Math.round(Math.sqrt(count * (16 / 9))));
-      const rows = Math.max(1, Math.ceil(count / columns));
-      const canvas = document.createElement('canvas');
-      canvas.width = columns;
-      canvas.height = rows;
-      const context = canvas.getContext('2d', { willReadFrequently: true });
-      if (!context) {
-        resolve([]);
-        return;
-      }
-      const sourceRatio = image.naturalWidth / image.naturalHeight;
-      const targetRatio = columns / rows;
-      let sx = 0;
-      let sy = 0;
-      let sw = image.naturalWidth;
-      let sh = image.naturalHeight;
-      if (sourceRatio > targetRatio) {
-        sw = image.naturalHeight * targetRatio;
-        sx = (image.naturalWidth - sw) / 2;
-      } else {
-        sh = image.naturalWidth / targetRatio;
-        sy = (image.naturalHeight - sh) / 2;
-      }
-      context.drawImage(image, sx, sy, sw, sh, 0, 0, columns, rows);
-      const pixels = context.getImageData(0, 0, columns, rows).data;
-      resolve(Array.from({ length: count }, (_, index) => {
-        const column = index % columns;
-        const row = Math.floor(index / columns);
-        const offset = (row * columns + column) * 4;
-        return {
-          xUnit: (column + 0.5) / columns,
-          yUnit: (row + 0.5 + (column % 2) * 0.5) / rows,
-          color: `rgb(${pixels[offset]}, ${pixels[offset + 1]}, ${pixels[offset + 2]})`,
-        };
-      }));
-    };
-    image.onerror = () => resolve([]);
-    image.src = source;
+/** Rasterise the two-line event theme into fixed positions for real photos. */
+function rasteriseTagline(tagline: string, count: number): FinalePixelTarget[] {
+  if (count <= 0 || typeof document === 'undefined') return [];
+  const canvas = document.createElement('canvas');
+  canvas.width = 1600;
+  canvas.height = 900;
+  const context = canvas.getContext('2d', { willReadFrequently: true });
+  if (!context) return [];
+  const lines = taglineLines(tagline);
+  context.fillStyle = '#fff';
+  context.font = '900 245px "PingFang SC", "Microsoft YaHei", "Noto Sans SC", sans-serif';
+  context.textAlign = 'center';
+  context.textBaseline = 'middle';
+  lines.forEach((line, index) => {
+    context.fillText(line, 800, 450 + (index - (lines.length - 1) / 2) * 285);
   });
-}
-
-function fallbackKvGrid(count: number): FinalePixelTarget[] {
-  if (count <= 0) return [];
-  const columns = Math.max(1, Math.round(Math.sqrt(count * (16 / 9))));
-  const rows = Math.max(1, Math.ceil(count / columns));
-  return Array.from({ length: count }, (_, index) => ({
-    xUnit: ((index % columns) + 0.5) / columns,
-    yUnit:
-      (Math.floor(index / columns) + 0.5 + ((index % columns) % 2) * 0.5) /
-      rows,
-  }));
+  const pixels = context.getImageData(0, 0, 1600, 900).data;
+  const candidates: FinalePixelTarget[] = [];
+  for (let y = 0; y < 900; y += 3) {
+    for (let x = 0; x < 1600; x += 3) {
+      if (pixels[(y * 1600 + x) * 4 + 3] > 96) {
+        candidates.push({ xUnit: x / 1600, yUnit: y / 900 });
+      }
+    }
+  }
+  return Array.from({ length: count }, (_, index) =>
+    candidates[Math.min(candidates.length - 1, Math.floor(((index + 0.5) / count) * candidates.length))],
+  ).filter(Boolean);
 }
 
 export default function WallFinaleSequence({
@@ -158,9 +127,6 @@ export default function WallFinaleSequence({
 }) {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const mosaicRef = useRef<HTMLDivElement | null>(null);
-  const pixelKvRef = useRef<HTMLCanvasElement | null>(null);
-  const kvImageUrl = `${assetBase}kv/booth-kv.png`;
-  const [sampledKvTargets, setSampledKvTargets] = useState<FinalePixelTarget[]>([]);
 
   const ordered = useMemo(
     () => [...entries].sort((left, right) => left.createdAt - right.createdAt),
@@ -186,33 +152,10 @@ export default function WallFinaleSequence({
     }
     return slots;
   }, [ordered]);
-  useEffect(() => {
-    let cancelled = false;
-    rasteriseKv(kvImageUrl, particleEntries.length).then((targets) => {
-      if (!cancelled) setSampledKvTargets(targets);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [kvImageUrl, particleEntries.length]);
-
-  useEffect(() => {
-    const canvas = pixelKvRef.current;
-    if (!canvas) return;
-    const image = new Image();
-    image.onload = () => {
-      const context = canvas.getContext('2d');
-      if (!context) return;
-      context.imageSmoothingEnabled = true;
-      context.clearRect(0, 0, canvas.width, canvas.height);
-      context.drawImage(image, 0, 0, canvas.width, canvas.height);
-    };
-    image.src = kvImageUrl;
-  }, [kvImageUrl]);
-  const pixelTargets = useMemo(() => {
-    if (sampledKvTargets.length === particleEntries.length) return sampledKvTargets;
-    return fallbackKvGrid(particleEntries.length);
-  }, [particleEntries.length, sampledKvTargets]);
+  const pixelTargets = useMemo(
+    () => rasteriseTagline(tagline, particleEntries.length),
+    [particleEntries.length, tagline],
+  );
   const cards = useMemo(() => {
     const indices = particleEntries.map((_, index) => index);
     return layoutFinaleCards(indices, pixelTargets).map((card) => {
@@ -332,17 +275,8 @@ export default function WallFinaleSequence({
         })}
       </div>
 
-      <canvas
-        ref={pixelKvRef}
-        className="finale-seq-pixel-kv"
-        width="64"
-        height="36"
-      />
       <div className="finale-seq-halo" />
-      <div className="finale-seq-type">
-        <img src={kvImageUrl} alt="" />
-        <h1 className="sr-only">{taglineLines(tagline).join('\n')}</h1>
-      </div>
+      <h1 className="sr-only">{taglineLines(tagline).join('\n')}</h1>
     </div>
   );
 }

@@ -48,11 +48,6 @@ const FIELD_ANCHORS: Record<PrimaryEnergy, [number, number]> = {
   Impact: [72, 76],
 };
 
-// A lightly populated rehearsal still needs a readable collective mark. Each
-// guest remains present at least once; only when the wall is sparse do their
-// tiny image-pixels echo to complete the letterform.
-const MIN_PIXEL_COUNT = FINALE_CARD_COUNT;
-
 function fieldGradient(entries: WallEntry[]) {
   const energies = Object.keys(ENERGY_CONFIG) as PrimaryEnergy[];
   const counts = new Map<PrimaryEnergy, number>();
@@ -84,9 +79,13 @@ function taglineLines(tagline: string) {
   return copy.length === 8 ? [`${copy.slice(0, 4)}  ${copy.slice(4)}`] : [copy];
 }
 
-/** Rasterise only the KV's eight-character headline into photo-tile positions. */
-function rasteriseTagline(tagline: string, count: number): FinalePixelTarget[] {
-  if (count <= 0 || typeof document === 'undefined') return [];
+/**
+ * Rasterise the eight-character headline onto a fixed portrait-tile grid.
+ * Each returned coordinate is one unique cell: photos can touch at their
+ * edges, but can never stack on top of one another.
+ */
+function rasteriseTagline(tagline: string): FinalePixelTarget[] {
+  if (typeof document === 'undefined') return [];
   const canvas = document.createElement('canvas');
   canvas.width = 1600;
   canvas.height = 900;
@@ -100,18 +99,26 @@ function rasteriseTagline(tagline: string, count: number): FinalePixelTarget[] {
   context.textAlign = 'center';
   context.textBaseline = 'middle';
   lines.forEach((line) => context.fillText(line, 800, 188));
-  const pixels = context.getImageData(0, 0, 1600, 900).data;
-  const candidates: FinalePixelTarget[] = [];
-  for (let y = 0; y < 900; y += 3) {
-    for (let x = 0; x < 1600; x += 3) {
-      if (pixels[(y * 1600 + x) * 4 + 3] > 96) {
-        candidates.push({ xUnit: x / 1600, yUnit: y / 900 });
+  const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
+  const columns = 160;
+  // At the supplied KV's panoramic ratio, 41 rows make every cell match the
+  // source photo's portrait aspect. That is what makes the final mosaic read
+  // as one continuous, edge-to-edge sheet rather than a pile of cards.
+  const rows = 41;
+  const targets: FinalePixelTarget[] = [];
+  for (let row = 0; row < rows; row += 1) {
+    for (let column = 0; column < columns; column += 1) {
+      const x = Math.floor(((column + 0.5) / columns) * canvas.width);
+      const y = Math.floor(((row + 0.5) / rows) * canvas.height);
+      if (pixels[(y * canvas.width + x) * 4 + 3] > 64) {
+        targets.push({
+          xUnit: (column + 0.5) / columns,
+          yUnit: (row + 0.5) / rows,
+        });
       }
     }
   }
-  return Array.from({ length: count }, (_, index) =>
-    candidates[Math.min(candidates.length - 1, Math.floor(((index + 0.5) / count) * candidates.length))],
-  ).filter(Boolean);
+  return targets;
 }
 
 export default function WallFinaleSequence({
@@ -134,9 +141,10 @@ export default function WallFinaleSequence({
     () => [...entries].sort((left, right) => left.createdAt - right.createdAt),
     [entries],
   );
+  const pixelTargets = useMemo(() => rasteriseTagline(tagline), [tagline]);
   const particleEntries = useMemo(() => {
     if (ordered.length === 0) return [];
-    const count = Math.max(MIN_PIXEL_COUNT, ordered.length);
+    const count = pixelTargets.length;
     const slots = Array<WallEntry | undefined>(count).fill(undefined);
     const pixelColumns = Math.max(1, Math.round(Math.sqrt(count * (16 / 9))));
     const recent = ordered.slice(-Math.min(ordered.length, FINALE_CARD_COUNT));
@@ -153,11 +161,7 @@ export default function WallFinaleSequence({
       }
     }
     return slots;
-  }, [ordered]);
-  const pixelTargets = useMemo(
-    () => rasteriseTagline(tagline, particleEntries.length),
-    [particleEntries.length, tagline],
-  );
+  }, [ordered, pixelTargets.length]);
   const cards = useMemo(() => {
     const indices = particleEntries.map((_, index) => index);
     return layoutFinaleCards(indices, pixelTargets).map((card) => {

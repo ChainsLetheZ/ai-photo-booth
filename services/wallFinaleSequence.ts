@@ -237,6 +237,8 @@ export function finaleCardWidthPx(
   if (stageWidth <= 0 || stageHeight <= 0 || count <= 0) return 0;
   // The supplied panoramic KV uses a fine, flat headline mosaic. Size tiles
   // from the stage itself so repeated portraits touch without becoming cards.
+  // A 2% overlap removes sub-pixel seams only; grid cells remain unique and
+  // neighbouring photos never occupy one another's position.
   return Math.max(3, stageWidth / 160) * 1.02;
 }
 

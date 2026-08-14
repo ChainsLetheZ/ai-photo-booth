@@ -2396,7 +2396,10 @@ button:focus-visible, a:focus-visible { outline: 3px solid #00a8e0; outline-offs
 .blink-video-left { object-position: center bottom; }
 
 .blink-right {
-  right: -.5%;
+  /* The supplied right-side clips already reserve transparent lead-in on the
+     left. Offset the full video beyond the edge so the robot itself, rather
+     than the video canvas, lands flush with the display boundary. */
+  right: -6%;
   bottom: 0;
   width: 43%;
   height: 62%;
@@ -2663,7 +2666,7 @@ button:focus-visible, a:focus-visible { outline: 3px solid #00a8e0; outline-offs
   .blink-dialogue.speaker-left { left: 7%; bottom: 51%; }
   .blink-dialogue.speaker-right { right: .5%; bottom: 39%; }
   .blink-left { width: 46%; height: 54%; min-width: 0; }
-  .blink-right { width: 48%; height: 52%; min-width: 0; }
+  .blink-right { right: -8%; width: 48%; height: 52%; min-width: 0; }
   .blink-viewfinder { left: 18%; width: 64%; }
   .gesture-task { min-height: 38px; }
   .gesture-task span { width: 32px; height: 32px; flex-basis: 32px; font-size: 18px; }

@@ -77,9 +77,9 @@ const capturedStart = finaleFrameAt(
   phaseStartMs('converge'),
   capturedLayout,
 ).cards[0];
-assert.equal(capturedStart.xUnit, capturedLayout[0].targetX);
-assert.equal(capturedStart.yUnit, capturedLayout[0].targetY);
-assert.equal(capturedStart.scale, 1);
+assert.equal(capturedStart.xUnit, capturedLayout[0].startX);
+assert.equal(capturedStart.yUnit, capturedLayout[0].startY);
+assert.equal(capturedStart.scale, capturedLayout[0].startScale);
 
 const convergeStart = phaseStartMs('converge');
 const pulseStart = phaseStartMs('pulse');
@@ -96,10 +96,11 @@ const midConverge = finaleFrameAt(
 const probe = layout[0];
 const probeMid = midConverge.cards.find((card) => card.entryIndex === probe.entryIndex)!;
 assert.ok(probeMid.opacity > 0 && probeMid.opacity < 1);
-assert.equal(probeMid.xUnit, probe.targetX);
-assert.equal(probeMid.yUnit, probe.targetY);
-assert.ok(midConverge.cameraScale > 1);
-assert.ok(midConverge.cameraScale < 8);
+assert.ok(probeMid.xUnit > Math.min(probe.startX, probe.targetX));
+assert.ok(probeMid.xUnit < Math.max(probe.startX, probe.targetX));
+assert.ok(probeMid.yUnit > Math.min(probe.startY, probe.targetY));
+assert.ok(probeMid.yUnit < Math.max(probe.startY, probe.targetY));
+assert.equal(midConverge.cameraScale, 1);
 assert.ok(probeMid.pixelMix >= 0 && probeMid.pixelMix < 1);
 
 const convergeEnd = finaleFrameAt(pulseStart - 1, layout);
@@ -141,18 +142,18 @@ assert.equal(noFlashFrame.flashOpacity, 0);
 const locked = finaleFrameAt(finaleTotalMs(), layout);
 locked.cards.forEach((card) => {
   const target = layout[card.entryIndex];
-  assert.ok(card.opacity > 0.99);
+  assert.equal(card.opacity, 0);
   assert.ok(Math.abs(card.xUnit - target.targetX) < 0.0001);
   assert.ok(Math.abs(card.yUnit - target.targetY) < 0.0001);
   assert.equal(card.scale, 1);
 });
-assert.equal(locked.taglineOpacity, 0);
+assert.equal(locked.taglineOpacity, 1);
 assert.equal(locked.kvRevealXUnit, 1);
 assert.equal(locked.flashOpacity, 0);
 assert.equal(locked.haloOpacity, 0);
 
 const empty = finaleFrameAt(taglineStart, layoutFinaleCards([]));
 assert.equal(empty.taglineOpacity, 0);
-assert.equal(finaleFrameAt(total, layoutFinaleCards([])).taglineOpacity, 0);
+assert.equal(finaleFrameAt(total, layoutFinaleCards([])).taglineOpacity, 1);
 
 console.log('Wall finale photo-letterform tests passed.');

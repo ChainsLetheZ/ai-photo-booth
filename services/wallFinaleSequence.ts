@@ -312,11 +312,13 @@ export function finaleFrameAt(
     timeMs < pulseStart
       ? null
       : PULSE_START_X + (PULSE_END_X - PULSE_START_X) * pulseP;
+  const taglineEase = easeOutCubic(clamp((taglineP - 0.08) / 0.72, 0, 1));
 
   const cardFrames: FinaleCardFrame[] = cards.map((card) => {
-    // Every tile is fixed in the master mosaic. Only the shared camera moves.
-    const x = card.targetX;
-    const y = card.targetY;
+    // Photos travel from their live-wall positions into unique, edge-to-edge
+    // headline cells while shrinking continuously into the fine mosaic.
+    const x = card.startX + (card.targetX - card.startX) * convergeEase;
+    const y = card.startY + (card.targetY - card.startY) * convergeEase;
     const rotation = 0;
     const convergeOpacity = convergeP <= 0 ? 0 : easeOutCubic(clamp(convergeP * 1.4, 0, 1));
     // Do not reveal the pixel artwork while photos are still visibly large.
@@ -345,9 +347,9 @@ export function finaleFrameAt(
       entryIndex: card.entryIndex,
       xUnit: x,
       yUnit: y,
-      scale: 1,
+      scale: card.startScale + (1 - card.startScale) * convergeEase,
       rotationDeg: rotation,
-      opacity: convergeOpacity,
+      opacity: convergeOpacity * (1 - taglineEase),
       blurPx: 0,
       glow: 0,
       pixelMix,
@@ -366,10 +368,9 @@ export function finaleFrameAt(
     clamp((timeMs - convergeStart) / (timing.convergeMs * 0.32), 0, 1),
   );
 
-  const taglineEase = easeOutCubic(clamp((taglineP - 0.08) / 0.72, 0, 1));
-  const cameraScale = CAMERA_START_SCALE + (1 - CAMERA_START_SCALE) * convergeEase;
-  const cameraStartX = 0.5 - CAMERA_START_SCALE * CAMERA_FOCUS_X;
-  const cameraStartY = 0.5 - CAMERA_START_SCALE * CAMERA_FOCUS_Y;
+  // The shrink now belongs to each real photo. Keeping the shared stage at
+  // scale 1 avoids multiplying that shrink and producing giant, clipped cards.
+  const cameraScale = 1;
   return {
     cards: cardFrames,
     fieldOpacity,
@@ -381,12 +382,12 @@ export function finaleFrameAt(
     // beam is only an accent; it no longer acts as a hard reveal boundary.
     // Hold the completed pixel KV briefly so it reads as an intentional frame,
     // then dissolve gently to the master rather than changing immediately.
-    taglineOpacity: 0,
+    taglineOpacity: taglineEase,
     taglineScale: 1,
     haloOpacity: 0,
     cameraScale,
-    cameraXUnit: cameraStartX * (1 - convergeEase),
-    cameraYUnit: cameraStartY * (1 - convergeEase),
+    cameraXUnit: 0,
+    cameraYUnit: 0,
     kvRevealXUnit: 1,
   };
 }

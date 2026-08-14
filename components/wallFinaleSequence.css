@@ -21,15 +21,23 @@
 /* The field the whole sequence sits on. Never black: its stops are the four
    energy colours in the proportion this room actually produced, so the ground
    is a readout of the crowd rather than a backdrop. */
+.finale-seq-field {
+  position: absolute;
+  inset: 0;
+  background: #020b11;
+  opacity: var(--field-opacity, 0);
+  z-index: 1;
+}
+
 .finale-seq-kv {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: fill;
   object-position: center;
-  opacity: var(--field-opacity, 0);
-  z-index: 1;
+  opacity: var(--tagline-opacity, 0);
+  z-index: 4;
   will-change: opacity;
 }
 
@@ -57,10 +65,10 @@
   position: absolute;
   inset: 0;
   overflow: visible;
-  z-index: 2;
+  z-index: 3;
   transform-origin: 0 0;
   will-change: transform;
-  opacity: var(--mosaic-opacity, 0);
+  opacity: 1;
 }
 
 /* A bounded pool: one node per card the sequence actually shows, never a node

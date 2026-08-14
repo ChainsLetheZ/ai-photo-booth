@@ -1,4 +1,4 @@
-import React, { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ENERGY_CONFIG } from '../constants';
 import {
   DEFAULT_FINALE_TIMING,
@@ -84,7 +84,7 @@ function taglineLines(tagline: string) {
  * Each returned coordinate is one unique cell: photos can touch at their
  * edges, but can never stack on top of one another.
  */
-function rasteriseTagline(tagline: string): FinalePixelTarget[] {
+function fallbackTaglineTargets(tagline: string): FinalePixelTarget[] {
   if (typeof document === 'undefined') return [];
   const canvas = document.createElement('canvas');
   canvas.width = 1600;
@@ -100,11 +100,11 @@ function rasteriseTagline(tagline: string): FinalePixelTarget[] {
   context.textBaseline = 'middle';
   lines.forEach((line) => context.fillText(line, 800, 188));
   const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
-  const columns = 160;
+  const columns = 220;
   // At the supplied KV's panoramic ratio, 41 rows make every cell match the
   // source photo's portrait aspect. That is what makes the final mosaic read
   // as one continuous, edge-to-edge sheet rather than a pile of cards.
-  const rows = 41;
+  const rows = 56;
   const targets: FinalePixelTarget[] = [];
   for (let row = 0; row < rows; row += 1) {
     for (let column = 0; column < columns; column += 1) {
@@ -119,6 +119,59 @@ function rasteriseTagline(tagline: string): FinalePixelTarget[] {
     }
   }
   return targets;
+}
+
+/** Read the headline directly from the supplied KV, so the photo glyphs and
+ * the final artwork share exactly the same position and proportions. */
+async function rasteriseKvHeadline(tagline: string): Promise<FinalePixelTarget[]> {
+  if (typeof document === 'undefined') return [];
+  const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const node = new Image();
+    node.onload = () => resolve(node);
+    node.onerror = () => reject(new Error('Unable to read gala KV'));
+    node.src = GALA_KV_URL;
+  });
+  const canvas = document.createElement('canvas');
+  canvas.width = 1760;
+  canvas.height = 490;
+  const context = canvas.getContext('2d', { willReadFrequently: true });
+  if (!context) return fallbackTaglineTargets(tagline);
+  context.drawImage(image, 0, 0, canvas.width, canvas.height);
+  const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
+  const columns = 220;
+  const rows = 56;
+  const targets: FinalePixelTarget[] = [];
+  const cellWidth = canvas.width / columns;
+  const cellHeight = canvas.height / rows;
+
+  for (let row = 0; row < rows; row += 1) {
+    for (let column = 0; column < columns; column += 1) {
+      const x0 = Math.floor(column * cellWidth);
+      const x1 = Math.ceil((column + 1) * cellWidth);
+      const y0 = Math.floor(row * cellHeight);
+      const y1 = Math.ceil((row + 1) * cellHeight);
+      let headlinePixels = 0;
+      let samples = 0;
+      for (let y = y0; y < y1; y += 2) {
+        for (let x = x0; x < x1; x += 2) {
+          samples += 1;
+          // Only the warm white/peach Chinese headline, restricted to its
+          // known top-centre band. Stars and the blue/orange light trails are
+          // therefore never mistaken for a letter tile.
+          if (x / canvas.width < 0.27 || x / canvas.width > 0.73 || y / canvas.height < 0.12 || y / canvas.height > 0.36) continue;
+          const offset = (y * canvas.width + x) * 4;
+          const red = pixels[offset];
+          const green = pixels[offset + 1];
+          const blue = pixels[offset + 2];
+          if (red > 185 && green > 135 && blue > 105 && red >= blue) headlinePixels += 1;
+        }
+      }
+      if (headlinePixels / Math.max(1, samples) >= 0.1) {
+        targets.push({ xUnit: (column + 0.5) / columns, yUnit: (row + 0.5) / rows });
+      }
+    }
+  }
+  return targets.length > 80 ? targets : fallbackTaglineTargets(tagline);
 }
 
 export default function WallFinaleSequence({
@@ -136,12 +189,21 @@ export default function WallFinaleSequence({
 }) {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const mosaicRef = useRef<HTMLDivElement | null>(null);
+  const [pixelTargets, setPixelTargets] = useState<FinalePixelTarget[]>(() =>
+    fallbackTaglineTargets(tagline),
+  );
 
   const ordered = useMemo(
     () => [...entries].sort((left, right) => left.createdAt - right.createdAt),
     [entries],
   );
-  const pixelTargets = useMemo(() => rasteriseTagline(tagline), [tagline]);
+  useEffect(() => {
+    let cancelled = false;
+    rasteriseKvHeadline(tagline).then((targets) => {
+      if (!cancelled) setPixelTargets(targets);
+    });
+    return () => { cancelled = true; };
+  }, [tagline]);
   const particleEntries = useMemo(() => {
     if (ordered.length === 0) return [];
     const count = pixelTargets.length;
@@ -230,6 +292,15 @@ export default function WallFinaleSequence({
       const mosaic = mosaicRef.current;
       if (mosaic) {
         mosaic.style.transform = `matrix(${frame.cameraScale.toFixed(5)}, 0, 0, ${frame.cameraScale.toFixed(5)}, ${(frame.cameraXUnit * stageWidth).toFixed(2)}, ${(frame.cameraYUnit * stageHeight).toFixed(2)})`;
+        Array.from(mosaic.children).forEach((node, index) => {
+          const card = frame.cards[index];
+          if (!card) return;
+          const element = node as HTMLElement;
+          element.style.left = `${(card.xUnit * 100).toFixed(4)}%`;
+          element.style.top = `${(card.yUnit * 100).toFixed(4)}%`;
+          element.style.opacity = card.opacity.toFixed(3);
+          element.style.transform = `translate3d(-50%, -50%, 0) scale(${card.scale.toFixed(4)})`;
+        });
       }
 
     };
@@ -257,6 +328,7 @@ export default function WallFinaleSequence({
 
   return (
     <div ref={rootRef} className={`finale-seq ${active ? 'is-running' : ''}`} aria-hidden="true">
+      <div className="finale-seq-field" />
       <img className="finale-seq-kv" src={GALA_KV_URL} alt="" />
       <div className="finale-seq-pulse" />
 

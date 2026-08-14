@@ -391,21 +391,26 @@ export default function BoothPage() {
     phaseHeldMs < taskStartsAt;
   const taskPhaseMs = Math.max(0, phaseHeldMs - taskStartsAt);
   const lockedConfirming = state === 'LOCKED' && phaseHeldMs < 750;
-  const showRightBlink =
-    state === 'PERCEIVING' && !introActive && !guidanceActive;
+  // The photographer stays on the left at every stage. The side-entry clip is
+  // deliberately a right-side-only cue: putting it on the left made the
+  // photographer disappear after its one-shot video ended.
+  const showRightBlink = state === 'PERCEIVING';
+  const rightVideoSrc = !showRightBlink
+    ? null
+    : introActive || guidanceActive
+      ? BOOTH_VIDEO.arrival
+      : BOOTH_VIDEO.gesture;
+  const rightVideoLoops = rightVideoSrc === BOOTH_VIDEO.gesture;
   const captureSequenceActive =
     state === 'COUNTDOWN' ||
     state === 'CAPTURE' ||
     state === 'CREATE' ||
     state === 'RESULT';
-  // One action per session: the capture clip begins with the count-in and does
-  // not loop or remount while the QR is being prepared, so its final camera
-  // pose stays on screen until the experience resets.
+  // The actual shutter action plays only once. Its trimmed final frame is a
+  // camera-holding pose, which remains visible for the complete QR wait.
   const leftVideoSrc = captureSequenceActive
     ? BOOTH_VIDEO.captureHold
-    : state === 'PERCEIVING'
-      ? BOOTH_VIDEO.arrival
-      : BOOTH_VIDEO.idle;
+    : BOOTH_VIDEO.idle;
   const leftVideoLoops = leftVideoSrc === BOOTH_VIDEO.idle;
   const photoImage = portrait?.imageData ?? null;
 
@@ -515,11 +520,13 @@ export default function BoothPage() {
             <i className="corner bottom-right" />
           </div>
 
-          <div className={`blink-slot blink-right ${showRightBlink ? 'is-visible' : ''}`}>
-            {showRightBlink && (
+          <div className={`blink-slot blink-right ${rightVideoSrc ? 'is-visible' : ''}`}>
+            {rightVideoSrc && (
               <TransparentCharacterVideo
+                key={rightVideoSrc}
                 className="blink-video blink-video-right"
-                src={BOOTH_VIDEO.gesture}
+                src={rightVideoSrc}
+                loop={rightVideoLoops}
               />
             )}
           </div>

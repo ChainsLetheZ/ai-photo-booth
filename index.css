@@ -2388,18 +2388,18 @@ button:focus-visible, a:focus-visible { outline: 3px solid #00a8e0; outline-offs
 
 .blink-left {
   z-index: 5;
-  left: 2.5%;
+  left: .5%;
   bottom: 0;
-  width: 31%;
-  height: 46%;
+  width: 40%;
+  height: 64%;
 }
 .blink-video-left { object-position: center bottom; }
 
 .blink-right {
-  right: 0;
+  right: -.5%;
   bottom: 0;
-  width: 34%;
-  height: 43%;
+  width: 43%;
+  height: 62%;
   opacity: 0;
   transform: translateX(42%);
   transition: opacity .28s ease, transform .38s ease;
@@ -2441,15 +2441,15 @@ button:focus-visible, a:focus-visible { outline: 3px solid #00a8e0; outline-offs
 
 .blink-dialogue.speaker-left {
   right: auto;
-  left: 3%;
+  left: 9%;
   top: auto;
-  bottom: 45%;
-  max-width: 34%;
+  bottom: 50%;
+  max-width: 37%;
 }
 
 .blink-dialogue.speaker-right {
-  right: 1.5%;
-  bottom: 31%;
+  right: .5%;
+  bottom: 40%;
   left: auto;
   max-width: 48%;
 }
@@ -2644,6 +2644,8 @@ button:focus-visible, a:focus-visible { outline: 3px solid #00a8e0; outline-offs
 @media (max-width: 900px) {
   .blink-dialogue { top: 3%; width: max-content; max-width: 72%; }
   .blink-slot { bottom: 4%; height: 34%; }
+  .blink-left { width: 42%; height: 58%; }
+  .blink-right { width: 45%; height: 56%; }
   .photo-paper { top: 59%; }
 }
 
@@ -2658,9 +2660,10 @@ button:focus-visible, a:focus-visible { outline: 3px solid #00a8e0; outline-offs
   .blink-dialogue p { font-size: 16px; }
   .blink-dialogue.speaker-left,
   .blink-dialogue.speaker-right { max-width: 68%; }
-  .blink-dialogue.speaker-left { left: 2%; bottom: 46%; }
-  .blink-dialogue.speaker-right { right: 1%; bottom: 34%; }
-  .blink-slot { width: 31%; min-width: 0; }
+  .blink-dialogue.speaker-left { left: 7%; bottom: 51%; }
+  .blink-dialogue.speaker-right { right: .5%; bottom: 39%; }
+  .blink-left { width: 46%; height: 54%; min-width: 0; }
+  .blink-right { width: 48%; height: 52%; min-width: 0; }
   .blink-viewfinder { left: 18%; width: 64%; }
   .gesture-task { min-height: 38px; }
   .gesture-task span { width: 32px; height: 32px; flex-basis: 32px; font-size: 18px; }

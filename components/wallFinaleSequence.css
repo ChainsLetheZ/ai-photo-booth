@@ -85,6 +85,15 @@
     brightness(calc(1.04 + var(--card-glow, 0) * 0.45))
     saturate(1.15);
 }
+.finale-seq-card::before {
+  position: absolute;
+  content: '';
+  inset: 0;
+  z-index: 1;
+  background: var(--kv-pixel-color, transparent);
+  opacity: var(--kv-pixel-mix, 0);
+  pointer-events: none;
+}
 /* The pulse's response at this card: a brief edge light, not a colour wash. */
 .finale-seq-card::after {
   position: absolute;
@@ -95,6 +104,7 @@
     color-mix(in srgb, var(--card-energy, #7bd5ef) 85%, transparent);
   opacity: var(--card-glow, 0);
   mix-blend-mode: screen;
+  z-index: 2;
 }
 
 .finale-seq-halo {

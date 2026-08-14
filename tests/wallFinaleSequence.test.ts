@@ -58,8 +58,8 @@ const targets: FinalePixelTarget[] = indices.map((index) => ({
 const layout = layoutFinaleCards(indices, targets);
 assert.equal(layout.length, indices.length);
 layout.forEach((card, index) => {
-  assert.equal(card.targetX, targets[index].xUnit, 'uses the text-pixel x');
-  assert.equal(card.targetY, targets[index].yUnit, 'uses the text-pixel y');
+  assert.equal(card.targetX, targets[index].xUnit, 'uses the KV-pixel x');
+  assert.equal(card.targetY, targets[index].yUnit, 'uses the KV-pixel y');
   assert.equal(card.targetRotationDeg, 0, 'pixels settle without card tilts');
   assert.ok(card.startX >= 0 && card.startX <= 1);
   assert.ok(card.startY >= 0 && card.startY <= 1);
@@ -97,9 +97,10 @@ const probe = layout[0];
 const probeMid = midConverge.cards.find((card) => card.entryIndex === probe.entryIndex)!;
 assert.ok(probeMid.opacity > 0 && probeMid.opacity < 1);
 assert.ok(probeMid.scale < probe.startScale && probeMid.scale > 1);
+assert.ok(probeMid.pixelMix >= 0 && probeMid.pixelMix < 1);
 assert.ok(
   (probeMid.xUnit - probe.startX) * (probe.targetX - probe.startX) >= 0,
-  'the photo travels toward its typography point',
+  'the photo travels toward its KV pixel',
 );
 
 const convergeEnd = finaleFrameAt(pulseStart - 1, layout);
@@ -123,8 +124,8 @@ assert.ok(
     glowOf(pulseStart + DEFAULT_FINALE_TIMING.pulseMs * 0.85, left.entryIndex),
 );
 
-// The point cloud only suggests the letter positions. It then contracts and
-// fades behind a flash before clean KV typography takes over.
+// The sampled KV pixels contract and fade behind a flash before the clean,
+// high-resolution master KV takes over.
 const midRetreat = finaleFrameAt(
   retreatStart + DEFAULT_FINALE_TIMING.retreatMs / 2,
   layout,
@@ -154,4 +155,4 @@ const empty = finaleFrameAt(taglineStart, layoutFinaleCards([]));
 assert.equal(empty.taglineOpacity, 0);
 assert.equal(finaleFrameAt(total, layoutFinaleCards([])).taglineOpacity, 1);
 
-console.log('Wall finale pixel typography tests passed.');
+console.log('Wall finale KV pixel tests passed.');

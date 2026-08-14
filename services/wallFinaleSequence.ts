@@ -8,12 +8,12 @@
  * - `freeze` belongs to the wall's own tiles, not to this module — they fade
  *   out on the opacity transition they already have. Nothing here animates
  *   during it.
- * - `converge`: portraits arrive from a scatter and settle into a grid, full
- *   frame, unmodified crop. This is individual presence becoming a collective.
+ * - `converge`: portraits arrive from the infinite wall, continuously shrink,
+ *   and settle into the sampled pixels of the real master KV.
  * - `pulse`: a sweep crosses the grid once. This is the perception — the room
  *   watching the system register everyone who is there.
- * - `retreat`: the grid gives up the frame.
- * - `tagline`: the distilled message resolves from a blur and holds until the
+ * - `retreat`: the KV pixels contract behind a flash.
+ * - `tagline`: the high-resolution master KV resolves from a blur and holds until the
  *   operator takes it down.
  *
  * No card is ever re-cropped: `object-position` is fixed once and every
@@ -156,6 +156,7 @@ export interface FinaleCardLayout {
   targetX: number;
   targetY: number;
   targetRotationDeg: number;
+  targetColor?: string;
   /** Fallback start before converge. The live wall replaces this with the
    *  captured on-screen tile position whenever that portrait is visible. */
   startX: number;
@@ -169,6 +170,7 @@ export interface FinaleCardLayout {
 export interface FinalePixelTarget {
   xUnit: number;
   yUnit: number;
+  color?: string;
 }
 
 /**
@@ -212,6 +214,7 @@ export function layoutFinaleCards(
       targetX: clamp(targetX, 0.03, 0.97),
       targetY: clamp(targetY, 0.08, 0.92),
       targetRotationDeg: pixelTarget ? 0 : (jitter(index, 4) - 0.5) * 4,
+      targetColor: pixelTarget?.color,
       startX: clamp(0.5 + Math.cos(angle) * radius, 0.02, 0.98),
       startY: clamp(0.5 + Math.sin(angle) * radius * 0.75, 0.06, 0.94),
       // Entries not currently visible in the river arrive from the open field
@@ -246,6 +249,8 @@ export interface FinaleCardFrame {
   blurPx: number;
   /** The pulse's response at this card: 0 at rest, 1 at the moment it is hit. */
   glow: number;
+  /** Cross-fade from recognisable portrait into its sampled KV pixel. */
+  pixelMix: number;
 }
 
 export interface FinaleFrame {
@@ -297,12 +302,13 @@ export function finaleFrameAt(
       : PULSE_START_X + (PULSE_END_X - PULSE_START_X) * pulseP;
 
   const cardFrames: FinaleCardFrame[] = cards.map((card) => {
-    // Converge: from the scatter to the grid cell, fading and growing in.
+    // Converge: from full wall photos down into the master KV's sampled pixels.
     const x = card.startX + (card.targetX - card.startX) * convergeEase;
     const y = card.startY + (card.targetY - card.startY) * convergeEase;
     const rotation = card.targetRotationDeg * convergeEase;
     const convergeScale = card.startScale + (1 - card.startScale) * convergeEase;
     const convergeOpacity = convergeP <= 0 ? 0 : easeOutCubic(clamp(convergeP * 1.4, 0, 1));
+    const pixelMix = easeInOutCubic(clamp((convergeP - 0.58) / 0.42, 0, 1));
 
     // Pulse: settled at the grid cell; only glow and a small scale bump travel
     // through, driven by distance from the sweep at this instant.
@@ -312,8 +318,8 @@ export function finaleFrameAt(
         : gaussian(card.targetX - sweepX, PULSE_SIGMA);
     const pulseScale = 1 + glow * 0.035;
 
-    // The points only imply the letter placement. They contract and disappear
-    // behind the flash; the final KV copy is clean type, not tiny photographs.
+    // The sampled KV pixels contract and disappear behind the flash; the final
+    // held frame is the clean high-resolution master KV.
     const retreatX = card.targetX;
     const retreatY = card.targetY;
     const retreatScale = 1 - retreatEase * 0.78;
@@ -331,6 +337,7 @@ export function finaleFrameAt(
       opacity: inRetreatOrLater ? retreatOpacity : convergeOpacity,
       blurPx: inRetreatOrLater ? retreatBlur : 0,
       glow,
+      pixelMix,
     };
   });
 

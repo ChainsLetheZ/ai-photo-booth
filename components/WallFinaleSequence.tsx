@@ -1,4 +1,4 @@
-import React, { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ENERGY_CONFIG } from '../constants';
 import {
   DEFAULT_FINALE_TIMING,
@@ -84,58 +84,61 @@ function taglineLines(tagline: string) {
   return copy.length === 8 ? [copy.slice(0, 4), copy.slice(4)] : [copy];
 }
 
-/**
- * Samples the supplied KV copy into positions for the tiny portrait tiles.
- * The canvas is only a layout probe: the live finale still renders the actual
- * photos, so every stored portrait becomes one visible pixel in the phrase.
- */
-function rasteriseTagline(
-  tagline: string,
-  count: number,
-): FinalePixelTarget[] {
-  if (count <= 0 || typeof document === 'undefined') return [];
-  const canvas = document.createElement('canvas');
-  const width = 1600;
-  const height = 900;
-  canvas.width = width;
-  canvas.height = height;
-  const context = canvas.getContext('2d', { willReadFrequently: true });
-  const copy = tagline.trim();
-  if (!context || !copy) return [];
-
-  const lines = taglineLines(copy);
-  const longestLine = Math.max(...lines.map((line) => line.length));
-  const fontSize = Math.min(
-    280,
-    Math.max(86, Math.floor((width * 0.6) / longestLine)),
-  );
-  context.fillStyle = '#fff';
-  context.font = `900 ${fontSize}px "PingFang SC", "Microsoft YaHei", "Noto Sans SC", sans-serif`;
-  context.textAlign = 'center';
-  context.textBaseline = 'middle';
-  const lineHeight = fontSize * 1.16;
-  lines.forEach((line, index) => {
-    const y = height / 2 + (index - (lines.length - 1) / 2) * lineHeight;
-    context.fillText(line, width / 2, y);
+/** Samples the real 16:9 master KV into a photo-pixel mosaic. */
+function rasteriseKv(source: string, count: number): Promise<FinalePixelTarget[]> {
+  if (count <= 0 || typeof document === 'undefined') return Promise.resolve([]);
+  return new Promise((resolve) => {
+    const image = new Image();
+    image.onload = () => {
+      const columns = Math.max(1, Math.round(Math.sqrt(count * (16 / 9))));
+      const rows = Math.max(1, Math.ceil(count / columns));
+      const canvas = document.createElement('canvas');
+      canvas.width = columns;
+      canvas.height = rows;
+      const context = canvas.getContext('2d', { willReadFrequently: true });
+      if (!context) {
+        resolve([]);
+        return;
+      }
+      const sourceRatio = image.naturalWidth / image.naturalHeight;
+      const targetRatio = columns / rows;
+      let sx = 0;
+      let sy = 0;
+      let sw = image.naturalWidth;
+      let sh = image.naturalHeight;
+      if (sourceRatio > targetRatio) {
+        sw = image.naturalHeight * targetRatio;
+        sx = (image.naturalWidth - sw) / 2;
+      } else {
+        sh = image.naturalWidth / targetRatio;
+        sy = (image.naturalHeight - sh) / 2;
+      }
+      context.drawImage(image, sx, sy, sw, sh, 0, 0, columns, rows);
+      const pixels = context.getImageData(0, 0, columns, rows).data;
+      resolve(Array.from({ length: count }, (_, index) => {
+        const column = index % columns;
+        const row = Math.floor(index / columns);
+        const offset = (row * columns + column) * 4;
+        return {
+          xUnit: (column + 0.5) / columns,
+          yUnit: (row + 0.5) / rows,
+          color: `rgb(${pixels[offset]}, ${pixels[offset + 1]}, ${pixels[offset + 2]})`,
+        };
+      }));
+    };
+    image.onerror = () => resolve([]);
+    image.src = source;
   });
+}
 
-  const pixels = context.getImageData(0, 0, width, height).data;
-  const candidates: FinalePixelTarget[] = [];
-  const step = 4;
-  for (let y = 0; y < height; y += step) {
-    for (let x = 0; x < width; x += step) {
-      if (pixels[(y * width + x) * 4 + 3] < 96) continue;
-      candidates.push({ xUnit: x / width, yUnit: y / height });
-    }
-  }
-  if (candidates.length === 0) return [];
-  return Array.from({ length: count }, (_, index) => {
-    const candidateIndex = Math.min(
-      candidates.length - 1,
-      Math.floor(((index + 0.5) / count) * candidates.length),
-    );
-    return candidates[candidateIndex];
-  });
+function fallbackKvGrid(count: number): FinalePixelTarget[] {
+  if (count <= 0) return [];
+  const columns = Math.max(1, Math.round(Math.sqrt(count * (16 / 9))));
+  const rows = Math.max(1, Math.ceil(count / columns));
+  return Array.from({ length: count }, (_, index) => ({
+    xUnit: ((index % columns) + 0.5) / columns,
+    yUnit: (Math.floor(index / columns) + 0.5) / rows,
+  }));
 }
 
 export default function WallFinaleSequence({
@@ -154,6 +157,8 @@ export default function WallFinaleSequence({
   const rootRef = useRef<HTMLDivElement | null>(null);
   const cardRefs = useRef<(HTMLDivElement | null)[]>([]);
   const imageRefs = useRef<(HTMLImageElement | null)[]>([]);
+  const kvImageUrl = `${assetBase}kv/booth-kv.png`;
+  const [sampledKvTargets, setSampledKvTargets] = useState<FinalePixelTarget[]>([]);
 
   const ordered = useMemo(
     () => [...entries].sort((left, right) => left.createdAt - right.createdAt),
@@ -167,10 +172,19 @@ export default function WallFinaleSequence({
     );
     return Array.from({ length: count }, (_, index) => ordered[index % ordered.length]);
   }, [ordered]);
-  const pixelTargets = useMemo(
-    () => rasteriseTagline(tagline, particleEntries.length),
-    [particleEntries.length, tagline],
-  );
+  useEffect(() => {
+    let cancelled = false;
+    rasteriseKv(kvImageUrl, particleEntries.length).then((targets) => {
+      if (!cancelled) setSampledKvTargets(targets);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [kvImageUrl, particleEntries.length]);
+  const pixelTargets = useMemo(() => {
+    if (sampledKvTargets.length === particleEntries.length) return sampledKvTargets;
+    return fallbackKvGrid(particleEntries.length);
+  }, [particleEntries.length, sampledKvTargets]);
   const cards = useMemo(() => {
     const indices = particleEntries.map((_, index) => index);
     return layoutFinaleCards(indices, pixelTargets).map((card) => {
@@ -241,7 +255,7 @@ export default function WallFinaleSequence({
           card.style.opacity = '0';
           return;
         }
-        const imageUrl = entry.sourceImageUrl ?? entry.imageUrl;
+        const imageUrl = entry.imageUrl;
         if (image.dataset.src !== imageUrl) {
           image.src = imageUrl;
           image.dataset.src = imageUrl;
@@ -252,6 +266,8 @@ export default function WallFinaleSequence({
         card.style.opacity = state.opacity.toFixed(3);
         card.style.setProperty('--card-blur', `${state.blurPx.toFixed(2)}px`);
         card.style.setProperty('--card-glow', state.glow.toFixed(3));
+        card.style.setProperty('--kv-pixel-mix', state.pixelMix.toFixed(3));
+        card.style.setProperty('--kv-pixel-color', layout.targetColor ?? 'transparent');
         card.style.setProperty(
           '--card-energy',
           ENERGY_CONFIG[entry.primaryEnergy].accent,
@@ -307,7 +323,7 @@ export default function WallFinaleSequence({
       <div className="finale-seq-halo" />
       <div className="finale-seq-flash" />
       <div className="finale-seq-type">
-        <img src={`${assetBase}kv/booth-kv.png`} alt="" />
+        <img src={kvImageUrl} alt="" />
         <h1 className="sr-only">{taglineLines(tagline).join('\n')}</h1>
       </div>
     </div>

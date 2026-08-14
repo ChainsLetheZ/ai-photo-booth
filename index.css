@@ -726,7 +726,7 @@ button:focus-visible, a:focus-visible { outline: 3px solid #00a8e0; outline-offs
 
 .collective-stage {
   position: relative;
-  height: calc(100vh - 78px);
+  height: 100vh;
   overflow: hidden;
   isolation: isolate;
   background:
@@ -1467,7 +1467,7 @@ button:focus-visible, a:focus-visible { outline: 3px solid #00a8e0; outline-offs
   .live-readout { left:15px; top:15px; }
   .result-actions { align-items:flex-start; flex-direction:column; }
   .booth-footer { gap:8px; font-size:6px; }
-  .collective-stage { height:calc(100vh - 68px); }
+  .collective-stage { height:100vh; }
   .latest-card { left:16px; bottom:16px; width:calc(100% - 32px); }
   .connection-state { right:16px; top:18px; }
 }

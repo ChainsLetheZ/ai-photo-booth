@@ -1,5 +1,4 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import BrandBar from '../components/BrandBar';
 import WallIntelligenceField, {
   type WallIntelligencePhase,
   type WallSignalPoint,
@@ -34,7 +33,8 @@ type JoinPhase = WallIntelligencePhase;
 /**
  * At rest the wall is a river of large photos. A capture breaks it into
  * floating tiles and gathers them into the register, then it returns to the
- * river. Only the operator button takes it to the slogan.
+ * river. The operator's Space key takes it to the finale; the display itself
+ * deliberately contains no controls or browser-like chrome.
  */
 type Formation = 'scroll' | 'drift' | 'grid';
 
@@ -153,7 +153,7 @@ function entryMotion(id: string) {
 
 export default function WallPage() {
   const [records, setRecords] = useState<WallEntry[]>([]);
-  const [connected, setConnected] = useState(false);
+  const [, setConnected] = useState(false);
   const [layoutScale, setLayoutScale] = useState(1);
   const [standbySlots, setStandbySlots] = useState<Set<number>>(
     chooseStandbySlots,
@@ -400,9 +400,20 @@ export default function WallPage() {
     setFinale('freeze');
   }, [finale, records, riverActive]);
 
+  useEffect(() => {
+    const onSpace = (event: KeyboardEvent) => {
+      if (event.code !== 'Space' || event.repeat) return;
+      const target = event.target as HTMLElement | null;
+      if (target?.matches('input, textarea, select, button, [contenteditable="true"]')) return;
+      event.preventDefault();
+      toggleFinale();
+    };
+    window.addEventListener('keydown', onSpace);
+    return () => window.removeEventListener('keydown', onSpace);
+  }, [toggleFinale]);
+
   return (
     <main className="wall-shell">
-      <BrandBar wall />
       <section
         className={`collective-stage wall-layout-review ${
           activeJoin ? `is-ai-joining is-ai-${activeJoin.phase}` : ''
@@ -427,21 +438,6 @@ export default function WallPage() {
             aria-hidden="true"
           />
         )}
-
-        <header className="wall-stage-label">
-          {/* Kept away from the assemble control: nobody should reach for the
-              stage moment and land on navigation, or the reverse. Hidden while
-              the phrase is formed — no chrome in the middle of it. */}
-          <button
-            type="button"
-            className="wall-back-button"
-            onClick={goToBooth}
-          >
-            ← BOOTH
-          </button>
-          <span>COLLECTIVE WALL · LAYOUT REVIEW</span>
-          <strong>200 PLACES · #101—#300</strong>
-        </header>
 
         <div
           className="hex-wall-layout"
@@ -657,27 +653,6 @@ export default function WallPage() {
           />
         </div>
 
-        <div className="wall-layout-status">
-          <span>
-            <i className={connected ? 'status-dot' : 'status-dot muted'} />
-            {connected ? 'LIVE LINK' : 'RECONNECTING'}
-          </span>
-          <span>{records.length.toString().padStart(3, '0')} / 200 STORED</span>
-          {/* The finale never refuses. Legibility no longer depends on how many
-              photos the room has produced, so there is no minimum to meet. */}
-          <button
-            type="button"
-            className="wall-assemble-button"
-            onClick={toggleFinale}
-            title={
-              finale
-                ? `FINALE · ${finale.toUpperCase()}`
-                : `${records.length} portraits into ${FINAL_TAGLINE}`
-            }
-          >
-            {finale ? 'RETURN TO WALL' : 'RUN FINALE'}
-          </button>
-        </div>
       </section>
     </main>
   );

@@ -15,6 +15,11 @@ const PAPER_TEMPLATE_URL = '/templates/bosch-supplier-day-gala-paper.png';
 // top of the guest photo.
 const PAPER_SIZE = { width: 1377, height: 1835 };
 const PHOTO_WINDOW = { x: 151, y: 196, width: 1085, height: 1188, radius: 38 };
+// The artwork is composed at its native size, then exported at a phone-friendly
+// resolution. This cuts the corporate-network upload substantially without
+// changing the on-screen composition or the downloaded aspect ratio.
+const PORTRAIT_EXPORT = { width: 1033, height: 1376, quality: 0.72 };
+const WALL_EXPORT = { width: 760, height: 832, quality: 0.68 };
 
 function loadImage(source: string) {
   return new Promise<HTMLImageElement>((resolve, reject) => {
@@ -23,6 +28,23 @@ function loadImage(source: string) {
     image.onerror = () => reject(new Error(`Unable to load image: ${source}`));
     image.src = source;
   });
+}
+
+function exportJpeg(
+  source: HTMLCanvasElement,
+  width: number,
+  height: number,
+  quality: number,
+) {
+  const output = document.createElement('canvas');
+  output.width = width;
+  output.height = height;
+  const context = output.getContext('2d');
+  if (!context) throw new Error('Canvas is unavailable');
+  context.imageSmoothingEnabled = true;
+  context.imageSmoothingQuality = 'high';
+  context.drawImage(source, 0, 0, width, height);
+  return output.toDataURL('image/jpeg', quality);
 }
 
 function coverImage(
@@ -103,6 +125,7 @@ export async function renderFuturePortrait(
   reading: BehaviorReading,
   narrativeCopy = SECONDARY_COPY[reading.secondary],
   poseTrace: PoseTrace[] = [],
+  id = crypto.randomUUID(),
 ): Promise<PortraitRecord> {
   const [image, paperTemplate] = await Promise.all([
     loadImage(capturedImage),
@@ -152,10 +175,20 @@ export async function renderFuturePortrait(
   context.drawImage(createPaperOverlay(paperTemplate), 0, 0);
 
   return {
-    id: crypto.randomUUID(),
+    id,
     // The wall uses only this clean inner photo; the QR keeps the full paper.
-    sourceImageData: cleanPhoto.toDataURL('image/jpeg', 0.74),
-    imageData: canvas.toDataURL('image/jpeg', 0.82),
+    sourceImageData: exportJpeg(
+      cleanPhoto,
+      WALL_EXPORT.width,
+      WALL_EXPORT.height,
+      WALL_EXPORT.quality,
+    ),
+    imageData: exportJpeg(
+      canvas,
+      PORTRAIT_EXPORT.width,
+      PORTRAIT_EXPORT.height,
+      PORTRAIT_EXPORT.quality,
+    ),
     timestamp: Date.now(),
     primary,
     secondary: reading.secondary,

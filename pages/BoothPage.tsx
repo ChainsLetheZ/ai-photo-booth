@@ -242,6 +242,10 @@ export default function BoothPage() {
 
     const generate = async () => {
       const startedAt = performance.now();
+      const timings: Record<string, number> = {};
+      const mark = (name: string, since: number) => {
+        timings[name] = Math.round(performance.now() - since);
+      };
       uploadStartedAtRef.current = startedAt;
       setUploadElapsedSeconds(0);
       try {
@@ -262,9 +266,19 @@ export default function BoothPage() {
             armsOpen: generationEngine.features.armsOpen,
           },
         };
+        const portraitId = crypto.randomUUID();
+        // Reserving a wall number is an independent network operation. Start it
+        // while narrative/rendering run instead of adding another round trip.
+        const reserveStartedAt = performance.now();
+        const shortCodePromise = reserveWallCode(portraitId).then((code) => {
+          mark('reserve', reserveStartedAt);
+          return code;
+        });
+        const narrativeStartedAt = performance.now();
         const narrative = await generateNarrative(metadata).catch(() =>
           getFallbackNarrative(capturedPrimary, capturedSecondary),
         );
+        mark('narrative', narrativeStartedAt);
         const reading: BehaviorReading = {
           peopleCount: metadata.groupSize,
           mode: capturedMode,
@@ -273,25 +287,31 @@ export default function BoothPage() {
           cohesion: generationEngine.features.groupCohesion,
           secondary: capturedSecondary,
         };
+        const renderStartedAt = performance.now();
         const result = await renderFuturePortrait(
           capturedImage,
           capturedPrimary,
           reading,
           narrative.response,
           capturedPoseTraceRef.current,
+          portraitId,
         );
+        mark('render', renderStartedAt);
         if (cancelled) return;
         setUploadStage('reserving');
-        const shortCode = await reserveWallCode(result.id);
+        const shortCode = await shortCodePromise;
         if (cancelled) return;
         const published = { ...result, shortCode };
         setPortrait(published);
         // Taking the photo is the consent — every capture goes to the wall,
         // with no second confirmation and no way to hold one back.
         setUploadStage('uploading');
+        const publishStartedAt = performance.now();
         const wallEntry = await publishPortrait(published);
+        mark('publish', publishStartedAt);
         if (cancelled) return;
         setUploadStage('qr');
+        const qrStartedAt = performance.now();
         const claimUrl = publicPhotoUrl(wallEntry.claimToken);
         setClaimQr(
           await QRCode.toDataURL(claimUrl, {
@@ -300,10 +320,12 @@ export default function BoothPage() {
             width: 320,
           }),
         );
+        mark('qr', qrStartedAt);
         if (cancelled) return;
         setUploadStage(null);
         console.info(
           `[photo-flow] ready in ${Math.round(performance.now() - startedAt)}ms`,
+          timings,
         );
         controllerRef.current?.generationComplete();
       } catch (cause) {

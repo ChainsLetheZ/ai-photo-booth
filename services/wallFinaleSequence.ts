@@ -283,8 +283,8 @@ const PULSE_START_X = -0.18;
 const PULSE_END_X = 1.18;
 const PULSE_SIGMA = 0.1;
 const CAMERA_START_SCALE = 8;
-const CAMERA_FOCUS_X = 0.38;
-const CAMERA_FOCUS_Y = 0.62;
+const CAMERA_FOCUS_X = 0.5;
+const CAMERA_FOCUS_Y = 0.5;
 
 function gaussian(distance: number, sigma: number) {
   return Math.exp(-(distance * distance) / (2 * sigma * sigma));

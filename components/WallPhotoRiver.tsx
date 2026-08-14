@@ -29,12 +29,25 @@ export default function WallPhotoRiver({
   const freezeAnimationRef = useRef<Animation | null>(null);
   const tiles = useMemo(() => {
     if (entries.length === 0) return [];
-    return entries.slice(-TILE_COUNT).map((entry, index) => {
+    const recent = entries.slice(-TILE_COUNT);
+    const placed: Array<WallEntry | undefined> = [];
+    return Array.from({ length: TILE_COUNT }, (_, index) => {
+      const column = index % columns;
+      const row = Math.floor(index / columns);
+      const left = column > 0 ? placed[index - 1] : undefined;
+      const above = row > 0 ? placed[index - columns] : undefined;
+      const candidates = recent.filter(
+        (entry) => entry.id !== left?.id && entry.id !== above?.id,
+      );
+      const entry = candidates.length
+        ? candidates[(index * 7 + row * 3 + column * 5) % candidates.length]
+        : undefined;
+      placed.push(entry);
       return {
-        key: entry.id,
+        key: `${index}-${entry?.id ?? 'empty'}`,
         entry,
-        column: index % columns,
-        row: Math.floor(index / columns),
+        column,
+        row,
       };
     });
   }, [entries]);
@@ -107,7 +120,7 @@ export default function WallPhotoRiver({
               <div
                 className="wall-river-tile"
                 key={tile.key}
-                data-entry-id={tile.entry.id}
+                data-entry-id={tile.entry?.id}
                 style={
                   {
                     left: `${(tile.column * 100) / columns}%`,
@@ -115,18 +128,19 @@ export default function WallPhotoRiver({
                     width: `${100 / columns}%`,
                     height: `${100 / rows}%`,
                     '--wall-energy':
-                      ENERGY_CONFIG[tile.entry.primaryEnergy].accent,
-                    '--river-offset-y': tile.column % 2 === 0 ? '0%' : '50%',
+                      tile.entry
+                        ? ENERGY_CONFIG[tile.entry.primaryEnergy].accent
+                        : undefined,
+                    '--river-offset-y':
+                      tile.column % 2 !== 0 ? '35%' : '0%',
                   } as React.CSSProperties
                 }
               >
-                <div className="wall-river-photo">
-                  <img
-                    src={tile.entry.sourceImageUrl}
-                    alt=""
-                    draggable={false}
-                  />
-                </div>
+                {tile.entry?.sourceImageUrl && (
+                  <div className="wall-river-photo">
+                    <img src={tile.entry.sourceImageUrl} alt="" draggable={false} />
+                  </div>
+                )}
               </div>
             ))}
         </div>

@@ -169,16 +169,20 @@ export default function WallFinaleSequence({
     if (ordered.length === 0) return [];
     const count = Math.max(MIN_PIXEL_COUNT, ordered.length);
     const slots = Array<WallEntry | undefined>(count).fill(undefined);
-    const unique = ordered.slice(-count);
-    unique.forEach((entry, index) => {
-      // Spread each real photo across the large canvas exactly once. Empty
-      // cells later fade in as KV colour pixels; they never clone a portrait.
-      const slot = Math.min(
-        count - 1,
-        Math.floor(((index + 0.5) / unique.length) * count),
+    const pixelColumns = Math.max(1, Math.round(Math.sqrt(count * (16 / 9))));
+    const recent = ordered.slice(-Math.min(ordered.length, FINALE_CARD_COUNT));
+    for (let index = 0; index < count; index += 1) {
+      const column = index % pixelColumns;
+      const row = Math.floor(index / pixelColumns);
+      const left = column > 0 ? slots[index - 1] : undefined;
+      const above = row > 0 ? slots[index - pixelColumns] : undefined;
+      const candidates = recent.filter(
+        (entry) => entry.id !== left?.id && entry.id !== above?.id,
       );
-      slots[slot] = entry;
-    });
+      if (candidates.length > 0) {
+        slots[index] = candidates[(index * 11 + row * 5 + column * 7) % candidates.length];
+      }
+    }
     return slots;
   }, [ordered]);
   useEffect(() => {

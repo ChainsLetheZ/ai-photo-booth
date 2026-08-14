@@ -62,7 +62,8 @@ const assetBase = import.meta.env?.BASE_URL ?? '/';
 // Video filenames are deliberately versioned in the URL. Venue browsers and
 // static-hosting CDNs otherwise keep an older, long clip after a source video
 // has been trimmed, which looks like the new flow was never applied.
-const boothVideoRevision = '20260814b';
+const boothVideoRevision = '20260814c';
+const ARRIVAL_VIDEO_MS = 4_100;
 const BOOTH_VIDEO = {
   idle: `${assetBase}videos/01-idle-loop.mp4?v=${boothVideoRevision}`,
   arrival: `${assetBase}videos/02-arrival-once.mp4?v=${boothVideoRevision}`,
@@ -399,9 +400,12 @@ export default function BoothPage() {
   // deliberately a right-side-only cue: putting it on the left made the
   // photographer disappear after its one-shot video ended.
   const showRightBlink = state === 'PERCEIVING';
+  // The source clip is four seconds long. Do not replace it after the short
+  // text-intro timer (800 ms), otherwise the side-entry animation is visible
+  // for only a blink and looks like the old footage is still in use.
   const rightVideoSrc = !showRightBlink
     ? null
-    : introActive || guidanceActive
+    : phaseHeldMs < ARRIVAL_VIDEO_MS
       ? BOOTH_VIDEO.arrival
       : BOOTH_VIDEO.gesture;
   const rightVideoLoops = rightVideoSrc === BOOTH_VIDEO.gesture;

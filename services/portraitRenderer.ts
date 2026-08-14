@@ -18,8 +18,11 @@ const PHOTO_WINDOW = { x: 151, y: 196, width: 1085, height: 1188, radius: 38 };
 // The artwork is composed at its native size, then exported at a phone-friendly
 // resolution. This cuts the corporate-network upload substantially without
 // changing the on-screen composition or the downloaded aspect ratio.
-const PORTRAIT_EXPORT = { width: 1033, height: 1376, quality: 0.72 };
-const WALL_EXPORT = { width: 760, height: 832, quality: 0.68 };
+// Event-network preset: QR downloads are primarily viewed and shared on
+// phones. Keeping the long edge below 1,000 px makes publishing responsive on
+// the restricted venue uplink while retaining enough detail for a phone save.
+const PORTRAIT_EXPORT = { width: 720, height: 960, quality: 0.62 };
+const WALL_EXPORT = { width: 480, height: 525, quality: 0.58 };
 
 function loadImage(source: string) {
   return new Promise<HTMLImageElement>((resolve, reject) => {

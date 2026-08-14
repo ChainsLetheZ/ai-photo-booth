@@ -414,6 +414,10 @@ async function startServer() {
         const source = req.body.sourceImageUrl
           ? decodePortrait(req.body.sourceImageUrl)
           : undefined;
+        console.log(
+          `[cloud-upload] entry=${req.body.id} portrait=${Math.round(portrait.buffer.length / 1024)}KB ` +
+          `wall=${source ? Math.round(source.buffer.length / 1024) : 0}KB`,
+        );
         const requested = await cloudBaseRequest('/uploads', {
           method: 'POST',
           body: JSON.stringify({

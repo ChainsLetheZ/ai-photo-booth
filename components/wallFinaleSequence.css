@@ -21,15 +21,16 @@
 /* The field the whole sequence sits on. Never black: its stops are the four
    energy colours in the proportion this room actually produced, so the ground
    is a readout of the crowd rather than a backdrop. */
-.finale-seq-field {
+.finale-seq-kv {
   position: absolute;
-  inset: -28%;
-  background:
-    radial-gradient(ellipse 42% 34% at 50% 50%, color-mix(in srgb, var(--finale-accent, #7bd5ef) 14%, transparent), transparent 72%),
-    var(--finale-field, linear-gradient(#050c12, #02070b));
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
   opacity: var(--field-opacity, 0);
-  filter: brightness(var(--field-heat, 0.4)) saturate(1.15);
-  will-change: filter, opacity;
+  z-index: 1;
+  will-change: opacity;
 }
 
 /* The perception sweep. One soft vertical band crossing the grid once. */
@@ -85,9 +86,7 @@
   object-position: center;
   border-radius: 0;
   box-shadow: none;
-  filter: blur(var(--card-blur, 0px))
-    brightness(calc(1.04 + var(--card-glow, 0) * 0.45))
-    saturate(1.15);
+  filter: none;
   opacity: 1;
 }
 .finale-seq-card::before {
@@ -106,9 +105,8 @@
   content: '';
   inset: -1px;
   border-radius: 1px;
-  box-shadow: 0 0 0 1px
-    color-mix(in srgb, var(--card-energy, #7bd5ef) 85%, transparent);
-  opacity: var(--card-glow, 0);
+  box-shadow: none;
+  opacity: 0;
   mix-blend-mode: screen;
   z-index: 2;
 }

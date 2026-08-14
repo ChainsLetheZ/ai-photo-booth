@@ -235,11 +235,9 @@ export function finaleCardWidthPx(
   count: number,
 ): number {
   if (stageWidth <= 0 || stageHeight <= 0 || count <= 0) return 0;
-  const { cols, rows } = finaleGridFor(count);
-  const widthFromColumn = stageWidth / cols;
-  // Fill every KV column; portrait tiles overlap slightly vertically so no
-  // dark seams appear between the sampled colour pixels.
-  return widthFromColumn * 1.01;
+  // The supplied panoramic KV uses a fine, flat headline mosaic. Size tiles
+  // from the stage itself so repeated portraits touch without becoming cards.
+  return Math.max(3, stageWidth / 160) * 1.02;
 }
 
 export interface FinaleCardFrame {

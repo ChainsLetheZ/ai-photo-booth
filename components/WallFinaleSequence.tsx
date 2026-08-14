@@ -23,6 +23,8 @@ export interface FinaleStartPosition {
 
 export type FinaleStartMap = Record<string, FinaleStartPosition>;
 const EMPTY_START_POSITIONS: FinaleStartMap = {};
+const assetBase = import.meta.env?.BASE_URL ?? '/';
+const GALA_KV_URL = `${assetBase}kv/gala-dinner-kv.jpg`;
 
 /**
  * individual presence → collective convergence → AI perception → distilled
@@ -79,10 +81,10 @@ function dominantAccent(entries: WallEntry[]) {
 
 function taglineLines(tagline: string) {
   const copy = tagline.trim();
-  return copy.length === 8 ? [copy.slice(0, 4), copy.slice(4)] : [copy];
+  return copy.length === 8 ? [`${copy.slice(0, 4)}  ${copy.slice(4)}`] : [copy];
 }
 
-/** Rasterise the two-line event theme into fixed positions for real photos. */
+/** Rasterise only the KV's eight-character headline into photo-tile positions. */
 function rasteriseTagline(tagline: string, count: number): FinalePixelTarget[] {
   if (count <= 0 || typeof document === 'undefined') return [];
   const canvas = document.createElement('canvas');
@@ -92,12 +94,12 @@ function rasteriseTagline(tagline: string, count: number): FinalePixelTarget[] {
   if (!context) return [];
   const lines = taglineLines(tagline);
   context.fillStyle = '#fff';
-  context.font = '900 245px "PingFang SC", "Microsoft YaHei", "Noto Sans SC", sans-serif';
+  // Coordinates mirror the headline in the supplied 4724 × 1313 master KV.
+  // Everything outside these glyphs remains the untouched master artwork.
+  context.font = '900 128px "PingFang SC", "Microsoft YaHei", "Noto Sans SC", sans-serif';
   context.textAlign = 'center';
   context.textBaseline = 'middle';
-  lines.forEach((line, index) => {
-    context.fillText(line, 800, 450 + (index - (lines.length - 1) / 2) * 285);
-  });
+  lines.forEach((line) => context.fillText(line, 800, 188));
   const pixels = context.getImageData(0, 0, 1600, 900).data;
   const candidates: FinalePixelTarget[] = [];
   for (let y = 0; y < 900; y += 3) {
@@ -251,7 +253,7 @@ export default function WallFinaleSequence({
 
   return (
     <div ref={rootRef} className={`finale-seq ${active ? 'is-running' : ''}`} aria-hidden="true">
-      <div className="finale-seq-field" />
+      <img className="finale-seq-kv" src={GALA_KV_URL} alt="" />
       <div className="finale-seq-pulse" />
 
       <div ref={mosaicRef} className="finale-seq-cards">

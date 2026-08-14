@@ -319,7 +319,10 @@ export function finaleFrameAt(
     const y = card.targetY;
     const rotation = 0;
     const convergeOpacity = convergeP <= 0 ? 0 : easeOutCubic(clamp(convergeP * 1.4, 0, 1));
-    const pixelMix = easeInOutCubic(clamp((convergeP - 0.58) / 0.42, 0, 1));
+    // Do not reveal the pixel artwork while photos are still visibly large.
+    // The dissolve begins only in the final 18% of the camera pullback, when a
+    // portrait and one 48×27 KV pixel occupy effectively the same screen size.
+    const pixelMix = easeInOutCubic(clamp((convergeP - 0.82) / 0.18, 0, 1));
 
     // Pulse: settled at the grid cell; only glow and a small scale bump travel
     // through, driven by distance from the sweep at this instant.

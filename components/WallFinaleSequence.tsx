@@ -158,6 +158,7 @@ export default function WallFinaleSequence({
 }) {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const mosaicRef = useRef<HTMLDivElement | null>(null);
+  const pixelKvRef = useRef<HTMLCanvasElement | null>(null);
   const kvImageUrl = `${assetBase}kv/booth-kv.png`;
   const [sampledKvTargets, setSampledKvTargets] = useState<FinalePixelTarget[]>([]);
 
@@ -194,6 +195,20 @@ export default function WallFinaleSequence({
       cancelled = true;
     };
   }, [kvImageUrl, particleEntries.length]);
+
+  useEffect(() => {
+    const canvas = pixelKvRef.current;
+    if (!canvas) return;
+    const image = new Image();
+    image.onload = () => {
+      const context = canvas.getContext('2d');
+      if (!context) return;
+      context.imageSmoothingEnabled = true;
+      context.clearRect(0, 0, canvas.width, canvas.height);
+      context.drawImage(image, 0, 0, canvas.width, canvas.height);
+    };
+    image.src = kvImageUrl;
+  }, [kvImageUrl]);
   const pixelTargets = useMemo(() => {
     if (sampledKvTargets.length === particleEntries.length) return sampledKvTargets;
     return fallbackKvGrid(particleEntries.length);
@@ -317,6 +332,12 @@ export default function WallFinaleSequence({
         })}
       </div>
 
+      <canvas
+        ref={pixelKvRef}
+        className="finale-seq-pixel-kv"
+        width="48"
+        height="27"
+      />
       <div className="finale-seq-halo" />
       <div className="finale-seq-type">
         <img src={kvImageUrl} alt="" />

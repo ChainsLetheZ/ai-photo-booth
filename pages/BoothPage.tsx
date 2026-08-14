@@ -59,11 +59,15 @@ const GESTURE_TASK: GestureTask = {
 };
 
 const assetBase = import.meta.env?.BASE_URL ?? '/';
+// Video filenames are deliberately versioned in the URL. Venue browsers and
+// static-hosting CDNs otherwise keep an older, long clip after a source video
+// has been trimmed, which looks like the new flow was never applied.
+const boothVideoRevision = '20260814b';
 const BOOTH_VIDEO = {
-  idle: `${assetBase}videos/01-idle-loop.mp4`,
-  arrival: `${assetBase}videos/02-arrival-once.mp4`,
-  gesture: `${assetBase}videos/03-gesture-loop.mp4`,
-  captureHold: `${assetBase}videos/04-capture-hold.mp4`,
+  idle: `${assetBase}videos/01-idle-loop.mp4?v=${boothVideoRevision}`,
+  arrival: `${assetBase}videos/02-arrival-once.mp4?v=${boothVideoRevision}`,
+  gesture: `${assetBase}videos/03-gesture-loop.mp4?v=${boothVideoRevision}`,
+  captureHold: `${assetBase}videos/04-capture-hold.mp4?v=${boothVideoRevision}`,
 } as const;
 
 function makeFallbackCapture() {

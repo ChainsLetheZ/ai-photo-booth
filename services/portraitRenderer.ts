@@ -15,13 +15,10 @@ const PAPER_TEMPLATE_URL = '/templates/bosch-supplier-day-gala-paper.png';
 // top of the guest photo.
 const PAPER_SIZE = { width: 1377, height: 1835 };
 const PHOTO_WINDOW = { x: 151, y: 196, width: 1085, height: 1188, radius: 38 };
-// The artwork is composed at its native size, then exported at a phone-friendly
-// resolution. This cuts the corporate-network upload substantially without
-// changing the on-screen composition or the downloaded aspect ratio.
-// Event-network preset: QR downloads are primarily viewed and shared on
-// phones. Keeping the long edge below 1,000 px makes publishing responsive on
-// the restricted venue uplink while retaining enough detail for a phone save.
-const PORTRAIT_EXPORT = { width: 720, height: 960, quality: 0.62 };
+// QR downloads use the full supplied paper artwork, preserving the print-ready
+// 1377 × 1835 composition. The separate wall source remains compact because it
+// never needs to be downloaded or printed.
+const PORTRAIT_EXPORT = { width: PAPER_SIZE.width, height: PAPER_SIZE.height, quality: 0.84 };
 const WALL_EXPORT = { width: 480, height: 525, quality: 0.58 };
 
 function loadImage(source: string) {

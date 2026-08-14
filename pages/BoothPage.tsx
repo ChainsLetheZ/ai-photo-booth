@@ -62,12 +62,15 @@ const assetBase = import.meta.env?.BASE_URL ?? '/';
 // Video filenames are deliberately versioned in the URL. Venue browsers and
 // static-hosting CDNs otherwise keep an older, long clip after a source video
 // has been trimmed, which looks like the new flow was never applied.
-const boothVideoRevision = '20260814c';
+const boothVideoRevision = '20260814d';
 const ARRIVAL_VIDEO_MS = 4_100;
 const BOOTH_VIDEO = {
-  idle: `${assetBase}videos/01-idle-loop.mp4?v=${boothVideoRevision}`,
+  // Explicitly named from the newly supplied `1循环.mov`; it is not the
+  // repository's earlier 01-ready.mp4 source.
+  idle: `${assetBase}videos/new-left-idle.mp4?v=${boothVideoRevision}`,
   arrival: `${assetBase}videos/02-arrival-once.mp4?v=${boothVideoRevision}`,
   gesture: `${assetBase}videos/03-gesture-loop.mp4?v=${boothVideoRevision}`,
+  exit: `${assetBase}videos/right-exit-reverse.mp4?v=${boothVideoRevision}`,
   captureHold: `${assetBase}videos/04-capture-hold.mp4?v=${boothVideoRevision}`,
 } as const;
 
@@ -399,15 +402,19 @@ export default function BoothPage() {
   // The photographer stays on the left at every stage. The side-entry clip is
   // deliberately a right-side-only cue: putting it on the left made the
   // photographer disappear after its one-shot video ended.
-  const showRightBlink = state === 'PERCEIVING';
+  const showRightBlink = state === 'PERCEIVING' || state === 'COUNTDOWN';
   // The source clip is four seconds long. Do not replace it after the short
   // text-intro timer (800 ms), otherwise the side-entry animation is visible
-  // for only a blink and looks like the old footage is still in use.
-  const rightVideoSrc = !showRightBlink
-    ? null
-    : phaseHeldMs < ARRIVAL_VIDEO_MS
-      ? BOOTH_VIDEO.arrival
-      : BOOTH_VIDEO.gesture;
+  // for only a blink and looks like the old footage is still in use. When the
+  // shutter starts, the companion plays the same entry movement backwards and
+  // naturally retreats to the right instead of being hidden by CSS.
+  const rightVideoSrc = state === 'COUNTDOWN'
+    ? BOOTH_VIDEO.exit
+    : !showRightBlink
+      ? null
+      : phaseHeldMs < ARRIVAL_VIDEO_MS
+        ? BOOTH_VIDEO.arrival
+        : BOOTH_VIDEO.gesture;
   const rightVideoLoops = rightVideoSrc === BOOTH_VIDEO.gesture;
   const captureSequenceActive =
     state === 'COUNTDOWN' ||
@@ -446,13 +453,8 @@ export default function BoothPage() {
           : GESTURE_TASK.lines;
     }
   } else if (state === 'LOCKED') {
-    if (lockedConfirming) {
-      speaker = 'right';
-      dialogueLines = ['收到！这个姿势很不错！'];
-    } else {
-      speaker = 'left';
-      dialogueLines = ['太好了，就保持这个姿势！', '看这里，我来数：3、2、1！'];
-    }
+    speaker = 'left';
+    dialogueLines = ['太好了，就保持这个姿势！', '看这里，我来数：3、2、1！'];
   } else if (state === 'RESULT') {
     speaker = 'left';
     dialogueLines = ['拍好啦！你的未来照片已经出发。', '扫二维码带走，也去大屏找找自己吧！'];
@@ -469,9 +471,7 @@ export default function BoothPage() {
     ? dialogueLines
     : state === 'PERCEIVING'
       ? GESTURE_TASK.lines
-      : state === 'LOCKED'
-        ? ['姿势识别成功！', '准备好，看镜头！'] as [string, string]
-        : null;
+      : null;
 
   return (
     <main

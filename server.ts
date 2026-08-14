@@ -409,6 +409,7 @@ async function startServer() {
         return res.status(400).json({ error: "Invalid wall entry" });
       }
       try {
+        const cloudStartedAt = Date.now();
         const portrait = decodePortrait(req.body.imageUrl);
         const source = req.body.sourceImageUrl
           ? decodePortrait(req.body.sourceImageUrl)
@@ -424,6 +425,7 @@ async function startServer() {
           }),
         });
         const requestedText = await requested.text();
+        const presignMs = Date.now() - cloudStartedAt;
         if (requested.status < 200 || requested.status >= 300) {
           return res.status(requested.status).send(requestedText);
         }
@@ -437,6 +439,7 @@ async function startServer() {
           uploadCloudObject(portraitUpload, portrait),
           ...(source && sourceUpload ? [uploadCloudObject(sourceUpload, source)] : []),
         ]);
+        const storageMs = Date.now() - cloudStartedAt - presignMs;
         const { imageUrl: _imageUrl, sourceImageUrl: _sourceImageUrl, ...metadata } = req.body;
         const remote = await cloudBaseRequest('/entries', {
           method: 'POST',
@@ -446,7 +449,10 @@ async function startServer() {
             sourceImageFileId: sourceUpload?.fileId,
           }),
         });
-        console.log(`[cloud-upload] entry=${req.body.id} status=${remote.status}`);
+        console.log(
+          `[cloud-upload] entry=${req.body.id} status=${remote.status} ` +
+          `presign=${presignMs}ms storage=${storageMs}ms total=${Date.now() - cloudStartedAt}ms`,
+        );
         return res.status(remote.status).send(await remote.text());
       } catch (error) {
         console.error('[cloud-upload] failed:', error);

@@ -43,6 +43,15 @@ interface GestureTask {
   lines: [string, string];
 }
 
+type UploadStage = 'generating' | 'reserving' | 'uploading' | 'qr';
+
+const UPLOAD_STAGE_COPY: Record<UploadStage, string> = {
+  generating: '正在生成你的未来照片…',
+  reserving: '正在分配照片编号…',
+  uploading: '正在上传照片到云端…',
+  qr: '正在生成下载二维码…',
+};
+
 const GESTURE_TASK: GestureTask = {
   icon: '✋',
   name: '任选一个手势',
@@ -82,6 +91,8 @@ export default function BoothPage() {
   const [portrait, setPortrait] = useState<PortraitRecord | null>(null);
   const [claimQr, setClaimQr] = useState('');
   const [error, setError] = useState('');
+  const [uploadStage, setUploadStage] = useState<UploadStage | null>(null);
+  const [uploadElapsedSeconds, setUploadElapsedSeconds] = useState(0);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const cameraRef = useRef<BrowserCameraService | null>(null);
@@ -89,6 +100,7 @@ export default function BoothPage() {
   const generationStartedRef = useRef(false);
   const capturedPoseTraceRef = useRef<PoseTrace[]>([]);
   const captureEngineRef = useRef<InteractionEngineSnapshot | null>(null);
+  const uploadStartedAtRef = useRef(0);
   const debug = useMemo(
     () => new URLSearchParams(window.location.search).get('debug') === 'true',
     [],
@@ -108,10 +120,22 @@ export default function BoothPage() {
     capturedPoseTraceRef.current = [];
     setPortrait(null);
     setClaimQr('');
+    setUploadStage(null);
+    setUploadElapsedSeconds(0);
     setError('');
     captureEngineRef.current = null;
     controllerRef.current?.reset();
   }, []);
+
+  useEffect(() => {
+    if (!uploadStage) return undefined;
+    const timer = window.setInterval(() => {
+      setUploadElapsedSeconds(
+        Math.floor((performance.now() - uploadStartedAtRef.current) / 1000),
+      );
+    }, 250);
+    return () => window.clearInterval(timer);
+  }, [uploadStage]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -217,7 +241,11 @@ export default function BoothPage() {
     let cancelled = false;
 
     const generate = async () => {
+      const startedAt = performance.now();
+      uploadStartedAtRef.current = startedAt;
+      setUploadElapsedSeconds(0);
       try {
+        setUploadStage('generating');
         const capturedPrimary = generationEngine.primary ?? 'Intelligence';
         const capturedSecondary = generationEngine.secondary ?? 'Precision';
         const capturedMode = generationEngine.mode ?? 'Single';
@@ -253,14 +281,17 @@ export default function BoothPage() {
           capturedPoseTraceRef.current,
         );
         if (cancelled) return;
+        setUploadStage('reserving');
         const shortCode = await reserveWallCode(result.id);
         if (cancelled) return;
         const published = { ...result, shortCode };
         setPortrait(published);
         // Taking the photo is the consent — every capture goes to the wall,
         // with no second confirmation and no way to hold one back.
+        setUploadStage('uploading');
         const wallEntry = await publishPortrait(published);
         if (cancelled) return;
+        setUploadStage('qr');
         const claimUrl = publicPhotoUrl(wallEntry.claimToken);
         setClaimQr(
           await QRCode.toDataURL(claimUrl, {
@@ -269,12 +300,14 @@ export default function BoothPage() {
             width: 320,
           }),
         );
-        await new Promise((resolve) =>
-          window.setTimeout(resolve, simpleMode.photoPreviewMs),
-        );
         if (cancelled) return;
+        setUploadStage(null);
+        console.info(
+          `[photo-flow] ready in ${Math.round(performance.now() - startedAt)}ms`,
+        );
         controllerRef.current?.generationComplete();
       } catch (cause) {
+        setUploadStage(null);
         setError(
           cause instanceof Error
             ? cause.message
@@ -500,10 +533,17 @@ export default function BoothPage() {
             </div>
           )}
 
-          {state === 'CAPTURE' && capturedImage && !error && (
-            <div className="photo-upload-status" role="status">
-              正在生成并上传照片，请稍候…
-            </div>
+          {state === 'CAPTURE' && capturedImage && !error && uploadStage && (
+            <aside className="photo-claim-card is-preparing" role="status">
+              <div className="qr-placeholder" aria-hidden="true">
+                <i />
+              </div>
+              <div>
+                <strong>请拿出手机准备扫码</strong>
+                <span>二维码马上会出现在这里</span>
+                <small>{UPLOAD_STAGE_COPY[uploadStage]} · {uploadElapsedSeconds} 秒</small>
+              </div>
+            </aside>
           )}
 
           {state === 'RESULT' && claimQr && portrait?.shortCode && (

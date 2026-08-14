@@ -2468,7 +2468,10 @@ button:focus-visible, a:focus-visible { outline: 3px solid #00a8e0; outline-offs
   transform: rotate(45deg);
 }
 
-.blink-dialogue.speaker-left::after { left: 34%; }
+.blink-dialogue.speaker-left::after {
+  right: 8%;
+  left: auto;
+}
 .blink-dialogue.speaker-right::after { right: 14%; }
 
 .blink-dialogue.state-result {
@@ -2704,6 +2707,39 @@ button:focus-visible, a:focus-visible { outline: 3px solid #00a8e0; outline-offs
 .photo-claim-card div { display: grid; gap: 8px; }
 .photo-claim-card strong { font-size: 28px; }
 .photo-claim-card span { font-size: 18px; color: #555; }
+.photo-claim-card small { color: #666; font-size: 14px; }
+
+.photo-claim-card.is-preparing {
+  min-width: min(520px, 48vw);
+  background: rgba(255,255,255,.94);
+}
+
+.qr-placeholder {
+  position: relative;
+  width: 144px;
+  height: 144px;
+  flex: 0 0 144px;
+  overflow: hidden;
+  border: 2px dashed rgba(0,105,180,.42);
+  border-radius: 8px;
+  background:
+    linear-gradient(90deg, rgba(0,105,180,.08) 50%, transparent 50%) 0 0 / 18px 18px,
+    linear-gradient(rgba(0,105,180,.08) 50%, transparent 50%) 0 0 / 18px 18px,
+    #fff;
+}
+
+.qr-placeholder i {
+  position: absolute;
+  inset: -20% auto -20% -35%;
+  width: 34%;
+  background: linear-gradient(90deg, transparent, rgba(0,168,224,.58), transparent);
+  transform: skewX(-12deg);
+  animation: qrPreparingSweep 1.35s ease-in-out infinite;
+}
+
+@keyframes qrPreparingSweep {
+  to { left: 110%; }
+}
 
 @keyframes photo-claim-in {
   from { opacity: 0; transform: translateY(24px) scale(0.94); }

@@ -167,11 +167,19 @@ export default function WallFinaleSequence({
   );
   const particleEntries = useMemo(() => {
     if (ordered.length === 0) return [];
-    const count = Math.min(
-      FINALE_CARD_COUNT,
-      Math.max(MIN_PIXEL_COUNT, ordered.length),
-    );
-    return Array.from({ length: count }, (_, index) => ordered[index % ordered.length]);
+    const count = Math.max(MIN_PIXEL_COUNT, ordered.length);
+    const slots = Array<WallEntry | undefined>(count).fill(undefined);
+    const unique = ordered.slice(-count);
+    unique.forEach((entry, index) => {
+      // Spread each real photo across the large canvas exactly once. Empty
+      // cells later fade in as KV colour pixels; they never clone a portrait.
+      const slot = Math.min(
+        count - 1,
+        Math.floor(((index + 0.5) / unique.length) * count),
+      );
+      slots[slot] = entry;
+    });
+    return slots;
   }, [ordered]);
   useEffect(() => {
     let cancelled = false;
@@ -299,10 +307,7 @@ export default function WallFinaleSequence({
               } as React.CSSProperties
             }
           >
-            <img
-              alt=""
-              src={entry?.sourceImageUrl}
-            />
+            {entry?.sourceImageUrl && <img alt="" src={entry.sourceImageUrl} />}
           </div>
           );
         })}

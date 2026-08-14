@@ -1158,18 +1158,17 @@ button:focus-visible, a:focus-visible { outline: 3px solid #00a8e0; outline-offs
   position: absolute;
   top: 0;
   left: 0;
-  width: 200%;
-  height: 200%;
+  width: 100%;
+  height: 100%;
   will-change: transform;
 }
 /* Paused while the register is out, so returning to the river does not jump. */
 .wall-river-pan.is-panning {
-  animation: wall-river-pan var(--river-pan, 150s) linear infinite;
+  animation: none;
 }
 .wall-river-panel {
   position: absolute;
-  width: 50%;
-  height: 50%;
+  inset: 0;
 }
 .wall-river-tile {
   position: absolute;

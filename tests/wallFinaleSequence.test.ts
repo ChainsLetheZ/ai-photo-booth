@@ -106,7 +106,7 @@ const convergeEnd = finaleFrameAt(pulseStart - 1, layout);
 assert.ok(Math.abs(convergeEnd.cameraScale - 1) < 0.001);
 assert.ok(Math.abs(convergeEnd.cameraXUnit) < 0.001);
 assert.ok(Math.abs(convergeEnd.cameraYUnit) < 0.001);
-assert.equal(convergeEnd.kvRevealXUnit, 0);
+assert.equal(convergeEnd.kvRevealXUnit, 1);
 convergeEnd.cards.forEach((card) => {
   const target = layout[card.entryIndex];
   assert.ok(Math.abs(card.xUnit - target.targetX) < 0.01);
@@ -126,8 +126,8 @@ const midScan = finaleFrameAt(
   pulseStart + DEFAULT_FINALE_TIMING.pulseMs / 2,
   layout,
 );
-assert.ok(midScan.kvRevealXUnit > 0 && midScan.kvRevealXUnit < 1);
-assert.equal(midScan.taglineOpacity, 1);
+assert.equal(midScan.kvRevealXUnit, 1);
+assert.ok(midScan.taglineOpacity > 0 && midScan.taglineOpacity < 1);
 assert.ok(
   glowOf(pulseStart + DEFAULT_FINALE_TIMING.pulseMs * 0.85, right.entryIndex) >
     glowOf(pulseStart + DEFAULT_FINALE_TIMING.pulseMs * 0.85, left.entryIndex),

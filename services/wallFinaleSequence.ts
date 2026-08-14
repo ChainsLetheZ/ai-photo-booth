@@ -376,13 +376,14 @@ export function finaleFrameAt(
       sweepX !== null && timeMs < retreatStart ? clamp(sweepX, 0, 1) : null,
     flashOpacity: 0,
     taglineBlurPx: 0,
-    taglineOpacity: timeMs >= pulseStart ? 1 : 0,
+    // The full-resolution KV dissolves over the complete scan duration. The
+    // beam is only an accent; it no longer acts as a hard reveal boundary.
+    taglineOpacity: easeInOutCubic(pulseP),
     taglineScale: 1,
     haloOpacity: taglineEase * 0.32,
     cameraScale,
     cameraXUnit: cameraStartX * (1 - convergeEase),
     cameraYUnit: cameraStartY * (1 - convergeEase),
-    kvRevealXUnit:
-      timeMs < pulseStart ? 0 : timeMs >= retreatStart ? 1 : clamp(sweepX ?? 0, 0, 1),
+    kvRevealXUnit: 1,
   };
 }

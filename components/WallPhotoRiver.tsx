@@ -29,10 +29,9 @@ export default function WallPhotoRiver({
   const freezeAnimationRef = useRef<Animation | null>(null);
   const tiles = useMemo(() => {
     if (entries.length === 0) return [];
-    return Array.from({ length: TILE_COUNT }, (_, index) => {
-      const entry = entries[index % entries.length];
+    return entries.slice(-TILE_COUNT).map((entry, index) => {
       return {
-        key: `${index}`,
+        key: entry.id,
         entry,
         column: index % columns,
         row: Math.floor(index / columns),
@@ -103,19 +102,11 @@ export default function WallPhotoRiver({
         ref={panRef}
         className={`wall-river-pan ${active || freeze ? 'is-panning' : ''}`}
       >
-        {[0, 1, 2, 3].map((panel) => (
-          <div
-            className="wall-river-panel"
-            key={panel}
-            style={{
-              left: panel % 2 === 0 ? '0%' : '50%',
-              top: panel < 2 ? '0%' : '50%',
-            }}
-          >
+        <div className="wall-river-panel">
             {tiles.map((tile) => (
               <div
                 className="wall-river-tile"
-                key={`${panel}-${tile.key}`}
+                key={tile.key}
                 data-entry-id={tile.entry.id}
                 style={
                   {
@@ -138,8 +129,7 @@ export default function WallPhotoRiver({
                 </div>
               </div>
             ))}
-          </div>
-        ))}
+        </div>
       </div>
     </div>
   );

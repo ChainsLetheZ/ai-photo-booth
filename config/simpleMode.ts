@@ -20,7 +20,9 @@ export const simpleMode = {
 
   countdownSeconds: 3,
   photoPreviewMs: 3200,
-  resultHoldMs: 60_000,
+  // The QR must remain long enough for a guest to take out a phone, open the
+  // camera and scan. BoothPage renders this same duration as a live countdown.
+  resultHoldMs: 90_000,
   cooldownMs: 3000,
 
   allowManualShutter: true,

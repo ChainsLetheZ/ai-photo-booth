@@ -52,6 +52,12 @@ const UPLOAD_STAGE_COPY: Record<UploadStage, string> = {
   qr: '正在生成下载二维码…',
 };
 
+function formatRemainingTime(totalSeconds: number) {
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+}
+
 const GESTURE_TASK: GestureTask = {
   icon: '✋',
   name: '任选一个手势',
@@ -402,13 +408,13 @@ export default function BoothPage() {
   // The photographer stays on the left at every stage. The side-entry clip is
   // deliberately a right-side-only cue: putting it on the left made the
   // photographer disappear after its one-shot video ended.
-  const showRightBlink = state === 'PERCEIVING' || state === 'COUNTDOWN';
+  const showRightBlink = state === 'PERCEIVING' || state === 'LOCKED';
   // The source clip is four seconds long. Do not replace it after the short
   // text-intro timer (800 ms), otherwise the side-entry animation is visible
   // for only a blink and looks like the old footage is still in use. When the
-  // shutter starts, the companion plays the same entry movement backwards and
-  // naturally retreats to the right instead of being hidden by CSS.
-  const rightVideoSrc = state === 'COUNTDOWN'
+  // gesture is confirmed, the companion plays the same entry movement
+  // backwards and naturally retreats to the right before the countdown.
+  const rightVideoSrc = state === 'LOCKED'
     ? BOOTH_VIDEO.exit
     : !showRightBlink
       ? null
@@ -427,6 +433,11 @@ export default function BoothPage() {
     ? BOOTH_VIDEO.captureHold
     : BOOTH_VIDEO.idle;
   const leftVideoLoops = leftVideoSrc === BOOTH_VIDEO.idle;
+  const qrHoldMs = simpleMode.enabled ? simpleMode.resultHoldMs : 90_000;
+  const qrSecondsRemaining = Math.max(
+    0,
+    Math.ceil((qrHoldMs - phaseHeldMs) / 1000),
+  );
   const photoImage = portrait?.imageData ?? null;
 
   let speaker: 'left' | 'right' | null = null;
@@ -599,6 +610,7 @@ export default function BoothPage() {
               <div>
                 <strong>扫码下载照片</strong>
                 <span>照片编号 {portrait.shortCode}</span>
+                <small>请在 {formatRemainingTime(qrSecondsRemaining)} 内扫码保存</small>
               </div>
             </aside>
           )}

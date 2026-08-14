@@ -45,7 +45,7 @@ FINALE_PHASE_ORDER.slice(1).forEach((phase, index) => {
 
 // The finale's capacity is the wall capacity: no sampled subset silently drops
 // people from the final collective image.
-assert.equal(FINALE_CARD_COUNT, 200);
+assert.equal(FINALE_CARD_COUNT, 1296);
 assert.deepEqual(chooseFinalePhotos(0), []);
 assert.deepEqual(chooseFinalePhotos(5), [0, 1, 2, 3, 4]);
 assert.equal(chooseFinalePhotos(200).length, 200);
@@ -68,9 +68,9 @@ layout.forEach((card, index) => {
 // Even a small group settles as compact points, rather than another large grid
 // of photo cards.
 assert.equal(finaleCardWidthPx(0, 1080, 80), 0);
-assert.ok(finaleCardWidthPx(1920, 1080, 8) > 200);
-assert.ok(finaleCardWidthPx(1920, 1080, 200) > 80);
-assert.ok(finaleCardWidthPx(1920, 1080, 200) < 110);
+assert.ok(finaleCardWidthPx(1920, 1080, 8) > 300);
+assert.ok(finaleCardWidthPx(1920, 1080, 1296) > 35);
+assert.ok(finaleCardWidthPx(1920, 1080, 1296) < 45);
 
 const capturedLayout = [{ ...layout[0], startX: 0.2, startY: 0.3, startScale: 12 }];
 const capturedStart = finaleFrameAt(
@@ -145,8 +145,8 @@ midRetreat.cards.forEach((card) => {
   assert.ok(card.scale < 1);
 });
 
-const flashFrame = finaleFrameAt(taglineStart - 40, layout);
-assert.ok(flashFrame.flashOpacity > 0.9);
+const noFlashFrame = finaleFrameAt(taglineStart - 40, layout);
+assert.equal(noFlashFrame.flashOpacity, 0);
 
 const locked = finaleFrameAt(finaleTotalMs(), layout);
 locked.cards.forEach((card) => {

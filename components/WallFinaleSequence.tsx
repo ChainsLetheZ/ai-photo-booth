@@ -331,7 +331,6 @@ export default function WallFinaleSequence({
       </div>
 
       <div className="finale-seq-halo" />
-      <div className="finale-seq-flash" />
       <div className="finale-seq-type">
         <img src={kvImageUrl} alt="" />
         <h1 className="sr-only">{taglineLines(tagline).join('\n')}</h1>

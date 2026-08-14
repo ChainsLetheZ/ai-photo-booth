@@ -92,8 +92,11 @@ export function phaseStartMs(
   return cursor;
 }
 
-/** Every stored portrait can become one image-pixel in the finale. */
-export const FINALE_CARD_COUNT = 200;
+/**
+ * 48 × 27 portrait pixels: fine enough for a 16:9 KV to read as an image on a
+ * large display. Available portraits repeat across the fixed mosaic.
+ */
+export const FINALE_CARD_COUNT = 1296;
 /** Fallback field used only when the browser cannot rasterise the KV copy. */
 const GRID_BOX = { width: 0.6, height: 0.54 };
 const SCATTER_SPREAD = 0.47;
@@ -234,9 +237,9 @@ export function finaleCardWidthPx(
   if (stageWidth <= 0 || stageHeight <= 0 || count <= 0) return 0;
   const { cols, rows } = finaleGridFor(count);
   const widthFromColumn = stageWidth / cols;
-  const widthFromRow = (stageHeight / rows) * (1085 / 1188);
-  // A tiny overlap prevents sub-pixel seams from breaking the pixel image.
-  return Math.min(widthFromColumn, widthFromRow) * 1.015;
+  // Fill every KV column; portrait tiles overlap slightly vertically so no
+  // dark seams appear between the sampled colour pixels.
+  return widthFromColumn * 1.01;
 }
 
 export interface FinaleCardFrame {
@@ -362,11 +365,6 @@ export function finaleFrameAt(
   );
 
   const taglineEase = easeOutCubic(clamp((taglineP - 0.08) / 0.72, 0, 1));
-  const flashLeadMs = Math.min(220, timing.retreatMs * 0.35);
-  const flashDurationMs = 360;
-  const flashP = (timeMs - (taglineStart - flashLeadMs)) / flashDurationMs;
-  const flashOpacity =
-    flashP > 0 && flashP < 1 ? Math.sin(Math.PI * flashP) : 0;
   const cameraScale = CAMERA_START_SCALE + (1 - CAMERA_START_SCALE) * convergeEase;
   const cameraStartX = 0.5 - CAMERA_START_SCALE * CAMERA_FOCUS_X;
   const cameraStartY = 0.5 - CAMERA_START_SCALE * CAMERA_FOCUS_Y;
@@ -376,7 +374,7 @@ export function finaleFrameAt(
     fieldHeat,
     pulseXUnit:
       sweepX !== null && timeMs < retreatStart ? clamp(sweepX, 0, 1) : null,
-    flashOpacity,
+    flashOpacity: 0,
     taglineBlurPx: 0,
     taglineOpacity: timeMs >= pulseStart ? 1 : 0,
     taglineScale: 1,

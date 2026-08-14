@@ -8,8 +8,9 @@
  * - `freeze` belongs to the wall's own tiles, not to this module — they fade
  *   out on the opacity transition they already have. Nothing here animates
  *   during it.
- * - `converge`: portraits arrive from the infinite wall, continuously shrink,
- *   and settle into the sampled pixels of the real master KV.
+ * - `converge`: portraits are already locked into one giant mosaic. A virtual
+ *   camera travels across it and pulls back until the mosaic reads as the
+ *   sampled pixels of the real master KV. Individual photos never fly around.
  * - `pulse`: a sweep crosses the grid once. This is the perception — the room
  *   watching the system register everyone who is there.
  * - `retreat`: the KV pixels contract behind a flash.
@@ -211,8 +212,8 @@ export function layoutFinaleCards(
 
     return {
       entryIndex,
-      targetX: clamp(targetX, 0.03, 0.97),
-      targetY: clamp(targetY, 0.08, 0.92),
+      targetX: clamp(targetX, 0.005, 0.995),
+      targetY: clamp(targetY, 0.005, 0.995),
       targetRotationDeg: pixelTarget ? 0 : (jitter(index, 4) - 0.5) * 4,
       targetColor: pixelTarget?.color,
       startX: clamp(0.5 + Math.cos(angle) * radius, 0.02, 0.98),
@@ -224,19 +225,18 @@ export function layoutFinaleCards(
   });
 }
 
-/**
- * Width of a 4:3 card that fits inside its grid cell with a real gap on every
- * side. The calculation is shared by the live wall and the finale renderer so
- * a captured tile can be expressed as a scale without changing its crop.
- */
+/** Width of one portrait in the edge-to-edge KV mosaic. */
 export function finaleCardWidthPx(
   stageWidth: number,
   stageHeight: number,
   count: number,
 ): number {
   if (stageWidth <= 0 || stageHeight <= 0 || count <= 0) return 0;
-  const densitySize = Math.sqrt((stageWidth * stageHeight) / (count * 78));
-  return clamp(densitySize, 10, 16);
+  const { cols, rows } = finaleGridFor(count);
+  const widthFromColumn = stageWidth / cols;
+  const widthFromRow = (stageHeight / rows) * (1085 / 1188);
+  // A tiny overlap prevents sub-pixel seams from breaking the pixel image.
+  return Math.min(widthFromColumn, widthFromRow) * 1.015;
 }
 
 export interface FinaleCardFrame {
@@ -268,11 +268,20 @@ export interface FinaleFrame {
   taglineOpacity: number;
   taglineScale: number;
   haloOpacity: number;
+  /** Camera matrix over the fixed infinite mosaic. */
+  cameraScale: number;
+  cameraXUnit: number;
+  cameraYUnit: number;
+  /** Portion of the high-resolution KV revealed behind the scanning beam. */
+  kvRevealXUnit: number;
 }
 
 const PULSE_START_X = -0.18;
 const PULSE_END_X = 1.18;
 const PULSE_SIGMA = 0.1;
+const CAMERA_START_SCALE = 8;
+const CAMERA_FOCUS_X = 0.38;
+const CAMERA_FOCUS_Y = 0.62;
 
 function gaussian(distance: number, sigma: number) {
   return Math.exp(-(distance * distance) / (2 * sigma * sigma));
@@ -302,11 +311,10 @@ export function finaleFrameAt(
       : PULSE_START_X + (PULSE_END_X - PULSE_START_X) * pulseP;
 
   const cardFrames: FinaleCardFrame[] = cards.map((card) => {
-    // Converge: from full wall photos down into the master KV's sampled pixels.
-    const x = card.startX + (card.targetX - card.startX) * convergeEase;
-    const y = card.startY + (card.targetY - card.startY) * convergeEase;
-    const rotation = card.targetRotationDeg * convergeEase;
-    const convergeScale = card.startScale + (1 - card.startScale) * convergeEase;
+    // Every tile is fixed in the master mosaic. Only the shared camera moves.
+    const x = card.targetX;
+    const y = card.targetY;
+    const rotation = 0;
     const convergeOpacity = convergeP <= 0 ? 0 : easeOutCubic(clamp(convergeP * 1.4, 0, 1));
     const pixelMix = easeInOutCubic(clamp((convergeP - 0.58) / 0.42, 0, 1));
 
@@ -332,7 +340,7 @@ export function finaleFrameAt(
       entryIndex: card.entryIndex,
       xUnit: inRetreatOrLater ? retreatX : x,
       yUnit: inRetreatOrLater ? retreatY : y,
-      scale: inRetreatOrLater ? retreatScale : convergeScale * pulseScale,
+      scale: inRetreatOrLater ? retreatScale : pulseScale,
       rotationDeg: rotation,
       opacity: inRetreatOrLater ? retreatOpacity : convergeOpacity,
       blurPx: inRetreatOrLater ? retreatBlur : 0,
@@ -359,6 +367,9 @@ export function finaleFrameAt(
   const flashP = (timeMs - (taglineStart - flashLeadMs)) / flashDurationMs;
   const flashOpacity =
     flashP > 0 && flashP < 1 ? Math.sin(Math.PI * flashP) : 0;
+  const cameraScale = CAMERA_START_SCALE + (1 - CAMERA_START_SCALE) * convergeEase;
+  const cameraStartX = 0.5 - CAMERA_START_SCALE * CAMERA_FOCUS_X;
+  const cameraStartY = 0.5 - CAMERA_START_SCALE * CAMERA_FOCUS_Y;
   return {
     cards: cardFrames,
     fieldOpacity,
@@ -366,10 +377,14 @@ export function finaleFrameAt(
     pulseXUnit:
       sweepX !== null && timeMs < retreatStart ? clamp(sweepX, 0, 1) : null,
     flashOpacity,
-    taglineBlurPx: 9 * (1 - taglineEase),
-    taglineOpacity: taglineEase,
-    // The sentence settles down to size rather than growing into place.
-    taglineScale: 1.08 - taglineEase * 0.08,
+    taglineBlurPx: 0,
+    taglineOpacity: timeMs >= pulseStart ? 1 : 0,
+    taglineScale: 1,
     haloOpacity: taglineEase * 0.32,
+    cameraScale,
+    cameraXUnit: cameraStartX * (1 - convergeEase),
+    cameraYUnit: cameraStartY * (1 - convergeEase),
+    kvRevealXUnit:
+      timeMs < pulseStart ? 0 : timeMs >= retreatStart ? 1 : clamp(sweepX ?? 0, 0, 1),
   };
 }

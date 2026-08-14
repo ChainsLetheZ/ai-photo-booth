@@ -49,6 +49,7 @@
   opacity: var(--pulse-opacity, 0);
   mix-blend-mode: screen;
   will-change: left, opacity;
+  z-index: 7;
 }
 
 .finale-seq-cards {
@@ -56,6 +57,8 @@
   inset: 0;
   overflow: visible;
   z-index: 2;
+  transform-origin: 0 0;
+  will-change: transform;
 }
 
 /* A bounded pool: one node per card the sequence actually shows, never a node
@@ -151,6 +154,7 @@
   mix-blend-mode: screen;
   pointer-events: none;
   will-change: transform, opacity;
+  clip-path: inset(0 var(--kv-reveal-right, 100%) 0 0);
 }
 .finale-seq-type img {
   display: block;

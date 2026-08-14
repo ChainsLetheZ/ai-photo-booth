@@ -68,18 +68,18 @@ layout.forEach((card, index) => {
 // Even a small group settles as compact points, rather than another large grid
 // of photo cards.
 assert.equal(finaleCardWidthPx(0, 1080, 80), 0);
-assert.ok(finaleCardWidthPx(1920, 1080, 8) <= 16);
-assert.ok(finaleCardWidthPx(1920, 1080, 200) >= 7);
-assert.ok(finaleCardWidthPx(1920, 1080, 200) <= 16);
+assert.ok(finaleCardWidthPx(1920, 1080, 8) > 200);
+assert.ok(finaleCardWidthPx(1920, 1080, 200) > 80);
+assert.ok(finaleCardWidthPx(1920, 1080, 200) < 110);
 
 const capturedLayout = [{ ...layout[0], startX: 0.2, startY: 0.3, startScale: 12 }];
 const capturedStart = finaleFrameAt(
   phaseStartMs('converge'),
   capturedLayout,
 ).cards[0];
-assert.equal(capturedStart.xUnit, 0.2);
-assert.equal(capturedStart.yUnit, 0.3);
-assert.equal(capturedStart.scale, 12);
+assert.equal(capturedStart.xUnit, capturedLayout[0].targetX);
+assert.equal(capturedStart.yUnit, capturedLayout[0].targetY);
+assert.equal(capturedStart.scale, 1);
 
 const convergeStart = phaseStartMs('converge');
 const pulseStart = phaseStartMs('pulse');
@@ -96,14 +96,17 @@ const midConverge = finaleFrameAt(
 const probe = layout[0];
 const probeMid = midConverge.cards.find((card) => card.entryIndex === probe.entryIndex)!;
 assert.ok(probeMid.opacity > 0 && probeMid.opacity < 1);
-assert.ok(probeMid.scale < probe.startScale && probeMid.scale > 1);
+assert.equal(probeMid.xUnit, probe.targetX);
+assert.equal(probeMid.yUnit, probe.targetY);
+assert.ok(midConverge.cameraScale > 1);
+assert.ok(midConverge.cameraScale < 8);
 assert.ok(probeMid.pixelMix >= 0 && probeMid.pixelMix < 1);
-assert.ok(
-  (probeMid.xUnit - probe.startX) * (probe.targetX - probe.startX) >= 0,
-  'the photo travels toward its KV pixel',
-);
 
 const convergeEnd = finaleFrameAt(pulseStart - 1, layout);
+assert.ok(Math.abs(convergeEnd.cameraScale - 1) < 0.001);
+assert.ok(Math.abs(convergeEnd.cameraXUnit) < 0.001);
+assert.ok(Math.abs(convergeEnd.cameraYUnit) < 0.001);
+assert.equal(convergeEnd.kvRevealXUnit, 0);
 convergeEnd.cards.forEach((card) => {
   const target = layout[card.entryIndex];
   assert.ok(Math.abs(card.xUnit - target.targetX) < 0.01);
@@ -119,6 +122,12 @@ assert.ok(
   glowOf(pulseStart + DEFAULT_FINALE_TIMING.pulseMs * 0.15, left.entryIndex) >
     glowOf(pulseStart + DEFAULT_FINALE_TIMING.pulseMs * 0.15, right.entryIndex),
 );
+const midScan = finaleFrameAt(
+  pulseStart + DEFAULT_FINALE_TIMING.pulseMs / 2,
+  layout,
+);
+assert.ok(midScan.kvRevealXUnit > 0 && midScan.kvRevealXUnit < 1);
+assert.equal(midScan.taglineOpacity, 1);
 assert.ok(
   glowOf(pulseStart + DEFAULT_FINALE_TIMING.pulseMs * 0.85, right.entryIndex) >
     glowOf(pulseStart + DEFAULT_FINALE_TIMING.pulseMs * 0.85, left.entryIndex),
@@ -148,11 +157,12 @@ locked.cards.forEach((card) => {
   assert.ok(card.scale < 0.9);
 });
 assert.equal(locked.taglineOpacity, 1);
+assert.equal(locked.kvRevealXUnit, 1);
 assert.equal(locked.flashOpacity, 0);
 assert.ok(locked.haloOpacity > 0 && locked.haloOpacity < 0.5);
 
 const empty = finaleFrameAt(taglineStart, layoutFinaleCards([]));
-assert.equal(empty.taglineOpacity, 0);
+assert.equal(empty.taglineOpacity, 1);
 assert.equal(finaleFrameAt(total, layoutFinaleCards([])).taglineOpacity, 1);
 
 console.log('Wall finale KV pixel tests passed.');

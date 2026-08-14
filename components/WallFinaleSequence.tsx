@@ -155,6 +155,7 @@ export default function WallFinaleSequence({
   timing?: FinaleTiming;
 }) {
   const rootRef = useRef<HTMLDivElement | null>(null);
+  const mosaicRef = useRef<HTMLDivElement | null>(null);
   const cardRefs = useRef<(HTMLDivElement | null)[]>([]);
   const imageRefs = useRef<(HTMLImageElement | null)[]>([]);
   const kvImageUrl = `${assetBase}kv/booth-kv.png`;
@@ -243,6 +244,14 @@ export default function WallFinaleSequence({
       root.style.setProperty('--tagline-scale', frame.taglineScale.toFixed(4));
       root.style.setProperty('--halo-opacity', frame.haloOpacity.toFixed(3));
       root.style.setProperty('--flash-opacity', frame.flashOpacity.toFixed(3));
+      root.style.setProperty(
+        '--kv-reveal-right',
+        `${((1 - frame.kvRevealXUnit) * 100).toFixed(2)}%`,
+      );
+      const mosaic = mosaicRef.current;
+      if (mosaic) {
+        mosaic.style.transform = `matrix(${frame.cameraScale.toFixed(5)}, 0, 0, ${frame.cameraScale.toFixed(5)}, ${(frame.cameraXUnit * stageWidth).toFixed(2)}, ${(frame.cameraYUnit * stageHeight).toFixed(2)})`;
+      }
 
       const byIndex = new Map(frame.cards.map((card) => [card.entryIndex, card]));
       cards.forEach((layout, poolIndex) => {
@@ -301,7 +310,7 @@ export default function WallFinaleSequence({
       <div className="finale-seq-field" />
       <div className="finale-seq-pulse" />
 
-      <div className="finale-seq-cards">
+      <div ref={mosaicRef} className="finale-seq-cards">
         {cards.map((layout, poolIndex) => (
           <div
             className="finale-seq-card"

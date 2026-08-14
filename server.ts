@@ -28,10 +28,12 @@ if (fs.existsSync(localEnvPath)) {
   }
 }
 
-// This limit protects the local booth process only. In cloud-sync mode the
+// This limit protects the local booth process only. In CloudBase mode the
 // images are decoded here and uploaded directly to storage, so they never
-// enter the Function Compute request envelope.
+// enter the cloud function's 6 MB request envelope.
 const MAX_PORTRAIT_DATA_LENGTH = 20_000_000;
+const CLOUDBASE_PHOTO_API =
+  "https://uxgs-d4gv4c7qr60f22622-1317468313.ap-shanghai.app.tcloudbase.com/photo-booth";
 const ALLOWED_PRIMARY = ["Motion", "Intelligence", "Life", "Impact"];
 const ALLOWED_SECONDARY = [
   "Collaboration",
@@ -91,8 +93,7 @@ async function startServer() {
   );
   const wallRepository = new WallRepository(wallDataFile);
   const uploadToken = process.env.PHOTO_BOOTH_UPLOAD_TOKEN || '';
-  const useCloudSync = process.env.PHOTO_BOOTH_CLOUD_SYNC === 'true';
-  const functionComputeApi = (process.env.PHOTO_BOOTH_FC_API_URL || '').replace(/\/$/, '');
+  const useCloudBase = process.env.PHOTO_BOOTH_CLOUD_SYNC === 'true';
   const cloudProxyUrl = process.env.PHOTO_BOOTH_HTTPS_PROXY || '';
   let wallWebSocket: WebSocketServer | null = null;
 
@@ -139,11 +140,8 @@ async function startServer() {
   const isBoschProxyPage = (value: string) =>
     /rbins\.bosch\.com|This site is forbidden inside Bosch|Network Error \(tcp_error\)/i.test(value);
 
-  const functionComputeRequest = async (pathname: string, init?: RequestInit) => {
-    if (!functionComputeApi) {
-      throw new Error('PHOTO_BOOTH_FC_API_URL is required when cloud sync is enabled');
-    }
-    const target = `${functionComputeApi}${pathname}`;
+  const cloudBaseRequest = async (pathname: string, init?: RequestInit) => {
+    const target = `${CLOUDBASE_PHOTO_API}${pathname}`;
     const body = typeof init?.body === 'string' ? init.body : undefined;
     let lastError: unknown;
     for (let attempt = 1; attempt <= 3; attempt += 1) {
@@ -164,8 +162,8 @@ async function startServer() {
             return {
               status: 503,
               text: async () => JSON.stringify({
-                error: 'Bosch corporate proxy blocked Alibaba Cloud',
-                detail: '请切换非 Bosch 网络，或请 IT 放行阿里云 FC/OSS 域名。',
+                error: 'Bosch corporate proxy blocked Tencent Cloud',
+                detail: '请切换非 Bosch 网络，或请 IT 放行 CloudBase API 域名。',
               }),
             };
           }
@@ -189,15 +187,18 @@ async function startServer() {
     };
   };
 
-  interface OssUploadDescriptor {
+  interface CloudUploadDescriptor {
     variant: 'portrait' | 'source';
-    objectKey: string;
+    cloudPath: string;
     url: string;
-    headers: Record<string, string>;
+    token: string;
+    authorization: string;
+    fileId: string;
+    cosFileId: string;
   }
 
   const uploadCloudObject = async (
-    descriptor: OssUploadDescriptor,
+    descriptor: CloudUploadDescriptor,
     image: { mimeType: string; buffer: Buffer },
   ) => {
     console.log(`[cloud-upload] storage-host=${new URL(descriptor.url).hostname}`);
@@ -207,13 +208,19 @@ async function startServer() {
         const result = await curlRequest(
           descriptor.url,
           'PUT',
-          Object.entries(descriptor.headers).map(([name, value]) => `${name}: ${value}`),
+          [
+            `Authorization: ${descriptor.authorization}`,
+            `X-Cos-Security-Token: ${descriptor.token}`,
+            `X-Cos-Meta-Fileid: ${descriptor.cosFileId}`,
+            `key: ${encodeURIComponent(descriptor.cloudPath)}`,
+            `Content-Type: ${image.mimeType}`,
+          ],
           image.buffer,
         );
         const value = await result.text();
         if (result.status >= 200 && result.status < 300) return;
         if (isBoschProxyPage(value)) {
-          throw new Error('Bosch corporate proxy blocked Alibaba Cloud OSS. 请切换非 Bosch 网络或申请域名白名单。');
+          throw new Error('Bosch corporate proxy blocked Tencent Cloud storage. 请切换非 Bosch 网络或申请域名白名单。');
         }
         lastError = new Error(`Cloud storage upload failed (${result.status}): ${value}`);
         if (![502, 503, 504].includes(result.status)) throw lastError;
@@ -233,8 +240,8 @@ async function startServer() {
 
   const requireUploadToken: express.RequestHandler = (req, res, next) => {
     // In cloud-sync mode the browser talks only to localhost. The local Node
-    // process attaches the secret when forwarding to the configured FC host.
-    if (useCloudSync) return next();
+    // process attaches the secret when forwarding to the fixed CloudBase host.
+    if (useCloudBase) return next();
     if (!uploadToken || req.get('X-Photo-Booth-Token') === uploadToken) return next();
     return res.status(401).json({ error: 'Invalid upload token' });
   };
@@ -338,8 +345,8 @@ async function startServer() {
   // Persistent booth → server → wall contract. A WebSocket connection receives
   // a full sync first, then entry_added events for lossless reconnects.
   app.get("/api/wall/entries", async (_req, res) => {
-    if (useCloudSync) {
-      const remote = await functionComputeRequest('/entries');
+    if (useCloudBase) {
+      const remote = await cloudBaseRequest('/entries');
       return res.status(remote.status).send(await remote.text());
     }
     res.json(wallRepository.list());
@@ -368,8 +375,8 @@ async function startServer() {
   });
 
   app.post("/api/wall/codes", requireUploadToken, async (req, res) => {
-    if (useCloudSync) {
-      const remote = await functionComputeRequest('/codes', {
+    if (useCloudBase) {
+      const remote = await cloudBaseRequest('/codes', {
         method: 'POST',
         body: JSON.stringify(req.body),
       });
@@ -397,7 +404,7 @@ async function startServer() {
   });
 
   app.post("/api/wall/entries", requireUploadToken, async (req, res) => {
-    if (useCloudSync) {
+    if (useCloudBase) {
       if (!isWallEntryDraft(req.body)) {
         return res.status(400).json({ error: "Invalid wall entry" });
       }
@@ -406,7 +413,7 @@ async function startServer() {
         const source = req.body.sourceImageUrl
           ? decodePortrait(req.body.sourceImageUrl)
           : undefined;
-        const requested = await functionComputeRequest('/uploads', {
+        const requested = await cloudBaseRequest('/uploads', {
           method: 'POST',
           body: JSON.stringify({
             id: req.body.id,
@@ -420,23 +427,23 @@ async function startServer() {
         if (requested.status < 200 || requested.status >= 300) {
           return res.status(requested.status).send(requestedText);
         }
-        const descriptors = JSON.parse(requestedText) as OssUploadDescriptor[];
+        const descriptors = JSON.parse(requestedText) as CloudUploadDescriptor[];
         const portraitUpload = descriptors.find((item) => item.variant === 'portrait');
         const sourceUpload = descriptors.find((item) => item.variant === 'source');
         if (!portraitUpload || (source && !sourceUpload)) {
-          throw new Error('OSS did not return all upload descriptors');
+          throw new Error('Cloud storage did not return all upload descriptors');
         }
         await Promise.all([
           uploadCloudObject(portraitUpload, portrait),
           ...(source && sourceUpload ? [uploadCloudObject(sourceUpload, source)] : []),
         ]);
         const { imageUrl: _imageUrl, sourceImageUrl: _sourceImageUrl, ...metadata } = req.body;
-        const remote = await functionComputeRequest('/entries', {
+        const remote = await cloudBaseRequest('/entries', {
           method: 'POST',
           body: JSON.stringify({
             ...metadata,
-            imageObjectKey: portraitUpload.objectKey,
-            sourceImageObjectKey: sourceUpload?.objectKey,
+            imageFileId: portraitUpload.fileId,
+            sourceImageFileId: sourceUpload?.fileId,
           }),
         });
         console.log(`[cloud-upload] entry=${req.body.id} status=${remote.status}`);

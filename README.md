@@ -41,8 +41,8 @@ fallback if those files or the MoveNet runtime become unavailable.
 - `?photo=<claim-token>` — mobile photo preview and download page
 - `/booth?debug=true` — current perception landmarks, live features, scores and state
 
-Alibaba Cloud OSS + Function Compute deployment and the multi-device event setup are documented in
-[`docs/ALIBABA_CLOUD_DEPLOYMENT.md`](docs/ALIBABA_CLOUD_DEPLOYMENT.md).
+CloudBase deployment and the two-computer event setup are documented in
+[`docs/CLOUDBASE_DEPLOYMENT.md`](docs/CLOUDBASE_DEPLOYMENT.md)（中英双语）.
 
 ## Local perception architecture
 

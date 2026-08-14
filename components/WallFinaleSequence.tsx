@@ -301,8 +301,7 @@ export default function WallFinaleSequence({
           >
             <img
               alt=""
-              className={entry?.sourceImageUrl ? '' : 'is-composed-fallback'}
-              src={entry?.sourceImageUrl ?? entry?.imageUrl}
+              src={entry?.sourceImageUrl}
             />
           </div>
           );

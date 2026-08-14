@@ -131,7 +131,12 @@ async function createUploads(body) {
     const metadata = await app.getUploadMetadata({ cloudPath });
     files.push({ variant, cloudPath, ...metadata.data });
   }
-  if (!seen.has('portrait')) return response(400, { error: 'Portrait upload is required' });
+  if (!seen.has('portrait') && !seen.has('source')) {
+    return response(400, { error: 'At least one upload is required' });
+  }
+  if (!seen.has('portrait') && reserved.status !== 'ready') {
+    return response(409, { error: 'Portrait must be ready before queued wall upload' });
+  }
   const pending = Object.fromEntries(
     files.map((item) => [
       item.variant === 'portrait' ? 'pendingImageFileId' : 'pendingSourceImageFileId',
@@ -141,6 +146,22 @@ async function createUploads(body) {
   const { _id, ...stored } = reserved;
   await photos.doc(body.id).set({ ...stored, ...pending, uploadIssuedAt: Date.now() });
   return response(200, files);
+}
+
+async function attachSource(body) {
+  if (typeof body.id !== 'string' || typeof body.sourceImageFileId !== 'string') {
+    return response(400, { error: 'Invalid wall source' });
+  }
+  const current = await photos.doc(body.id).get();
+  const record = current.data?.[0];
+  if (!record || record.status !== 'ready') return response(409, { error: 'Portrait is not ready' });
+  if (body.sourceImageFileId !== record.pendingSourceImageFileId) {
+    return response(409, { error: 'Wall upload does not match reservation' });
+  }
+  const { _id, pendingSourceImageFileId, ...stored } = record;
+  const updated = { ...stored, sourceImageFileId: body.sourceImageFileId, wallReadyAt: Date.now() };
+  await photos.doc(body.id).set(updated);
+  return response(200, (await temporaryUrls([{ _id: body.id, ...updated }], true))[0]);
 }
 
 async function addEntry(body) {
@@ -233,6 +254,7 @@ exports.main = async (event) => {
     if (method === 'POST' && !authorized(event)) return response(401, { error: 'Unauthorized' });
     if (method === 'POST' && path.endsWith('/codes')) return await reserveCode(requestBody(event));
     if (method === 'POST' && path.endsWith('/uploads')) return await createUploads(requestBody(event));
+    if (method === 'POST' && path.endsWith('/source')) return await attachSource(requestBody(event));
     if (method === 'POST' && path.endsWith('/entries')) return await addEntry(requestBody(event));
     return response(404, { error: 'Not found' });
   } catch (error) {

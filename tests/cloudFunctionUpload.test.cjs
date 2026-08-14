@@ -90,21 +90,16 @@ function event(pathname, body) {
 
   const issued = await main(event('/photo-booth/uploads', {
     id,
-    files: [
-      { variant: 'portrait', mimeType: 'image/jpeg' },
-      { variant: 'source', mimeType: 'image/png' },
-    ],
+    files: [{ variant: 'portrait', mimeType: 'image/jpeg' }],
   }));
   assert.equal(issued.statusCode, 200);
   const uploads = JSON.parse(issued.body);
-  assert.equal(uploads.length, 2);
+  assert.equal(uploads.length, 1);
   assert.match(uploads[0].cloudPath, /\/portrait\.jpg$/);
-  assert.match(uploads[1].cloudPath, /\/source\.png$/);
 
   const finalized = await main(event('/photo-booth/entries', {
     id,
     imageFileId: uploads[0].fileId,
-    sourceImageFileId: uploads[1].fileId,
     primaryEnergy: 'Intelligence',
     secondaryDimension: 'Precision',
     narrativeLine: 'Test portrait',
@@ -118,6 +113,27 @@ function event(pathname, body) {
   assert.match(result.imageUrl, /^https:\/\/download\.invalid\//);
   assert.equal(records.get(id).status, 'ready');
   assert.equal(records.get(id).pendingImageFileId, undefined);
+  assert.equal(records.get(id).pendingSourceImageFileId, undefined);
+
+  // The clean wall photo is deliberately issued and attached only after the
+  // downloadable portrait has reached ready state.
+  const queued = await main(event('/photo-booth/uploads', {
+    id,
+    files: [{ variant: 'source', mimeType: 'image/jpeg' }],
+  }));
+  assert.equal(queued.statusCode, 200);
+  const wallUploads = JSON.parse(queued.body);
+  assert.equal(wallUploads.length, 1);
+  assert.match(wallUploads[0].cloudPath, /\/source\.jpg$/);
+
+  const attached = await main(event('/photo-booth/source', {
+    id,
+    sourceImageFileId: wallUploads[0].fileId,
+  }));
+  assert.equal(attached.statusCode, 200);
+  const wallResult = JSON.parse(attached.body);
+  assert.match(wallResult.sourceImageUrl, /^https:\/\/download\.invalid\//);
+  assert.equal(records.get(id).sourceImageFileId, wallUploads[0].fileId);
   assert.equal(records.get(id).pendingSourceImageFileId, undefined);
 
   console.log('CloudBase direct-upload contract tests passed.');

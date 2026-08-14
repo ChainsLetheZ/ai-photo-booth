@@ -418,10 +418,7 @@ async function startServer() {
           method: 'POST',
           body: JSON.stringify({
             id: req.body.id,
-            files: [
-              { variant: 'portrait', mimeType: portrait.mimeType },
-              ...(source ? [{ variant: 'source', mimeType: source.mimeType }] : []),
-            ],
+            files: [{ variant: 'portrait', mimeType: portrait.mimeType }],
           }),
         });
         const requestedText = await requested.text();
@@ -431,14 +428,8 @@ async function startServer() {
         }
         const descriptors = JSON.parse(requestedText) as CloudUploadDescriptor[];
         const portraitUpload = descriptors.find((item) => item.variant === 'portrait');
-        const sourceUpload = descriptors.find((item) => item.variant === 'source');
-        if (!portraitUpload || (source && !sourceUpload)) {
-          throw new Error('Cloud storage did not return all upload descriptors');
-        }
-        await Promise.all([
-          uploadCloudObject(portraitUpload, portrait),
-          ...(source && sourceUpload ? [uploadCloudObject(sourceUpload, source)] : []),
-        ]);
+        if (!portraitUpload) throw new Error('Cloud storage did not return portrait upload');
+        await uploadCloudObject(portraitUpload, portrait);
         const storageMs = Date.now() - cloudStartedAt - presignMs;
         const { imageUrl: _imageUrl, sourceImageUrl: _sourceImageUrl, ...metadata } = req.body;
         const remote = await cloudBaseRequest('/entries', {
@@ -446,14 +437,38 @@ async function startServer() {
           body: JSON.stringify({
             ...metadata,
             imageFileId: portraitUpload.fileId,
-            sourceImageFileId: sourceUpload?.fileId,
           }),
         });
         console.log(
           `[cloud-upload] entry=${req.body.id} status=${remote.status} ` +
           `presign=${presignMs}ms storage=${storageMs}ms total=${Date.now() - cloudStartedAt}ms`,
         );
-        return res.status(remote.status).send(await remote.text());
+        const remoteText = await remote.text();
+        if (source && remote.status >= 200 && remote.status < 300) {
+          // The QR is ready now. Send the clean wall photo through a separate
+          // background queue so it can never delay the guest's download.
+          void (async () => {
+            const queued = await cloudBaseRequest('/uploads', {
+              method: 'POST',
+              body: JSON.stringify({
+                id: req.body.id,
+                files: [{ variant: 'source', mimeType: source.mimeType }],
+              }),
+            });
+            if (!queued.ok) throw new Error(`Wall upload reservation failed: ${queued.status}`);
+            const queuedDescriptors = JSON.parse(await queued.text()) as CloudUploadDescriptor[];
+            const sourceUpload = queuedDescriptors.find((item) => item.variant === 'source');
+            if (!sourceUpload) throw new Error('Cloud storage did not return wall upload');
+            await uploadCloudObject(sourceUpload, source);
+            const attached = await cloudBaseRequest('/source', {
+              method: 'POST',
+              body: JSON.stringify({ id: req.body.id, sourceImageFileId: sourceUpload.fileId }),
+            });
+            if (!attached.ok) throw new Error(`Wall image attach failed: ${attached.status}`);
+            console.log(`[wall-upload] entry=${req.body.id} queued upload complete`);
+          })().catch((error) => console.error('[wall-upload] queued upload failed:', error));
+        }
+        return res.status(remote.status).send(remoteText);
       } catch (error) {
         console.error('[cloud-upload] failed:', error);
         return res.status(502).json({

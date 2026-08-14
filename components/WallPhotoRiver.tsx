@@ -131,8 +131,7 @@ export default function WallPhotoRiver({
               >
                 <div className="wall-river-photo">
                   <img
-                    className={tile.entry.sourceImageUrl ? '' : 'is-composed-fallback'}
-                    src={tile.entry.sourceImageUrl ?? tile.entry.imageUrl}
+                    src={tile.entry.sourceImageUrl}
                     alt=""
                     draggable={false}
                   />

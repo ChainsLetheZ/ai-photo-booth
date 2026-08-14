@@ -212,12 +212,14 @@ export default function WallPage() {
 
   useEffect(() => {
     const adopt = (entries: WallEntry[]) => {
-      entries.forEach((entry) => knownIdsRef.current.add(entry.id));
-      setRecords(entries);
+      const wallReady = entries.filter((entry) => Boolean(entry.sourceImageUrl));
+      wallReady.forEach((entry) => knownIdsRef.current.add(entry.id));
+      setRecords(wallReady);
     };
     listWallEntries().then(adopt);
     return subscribeToWallEntries(
       (entry) => {
+        if (!entry.sourceImageUrl) return;
         beginJoin(entry);
         setRecords((current) => upsert(current, entry));
       },
@@ -578,7 +580,7 @@ export default function WallPage() {
                 {entry && (
                   <img
                     className="hex-wall-photo"
-                    src={entry.sourceImageUrl ?? entry.imageUrl}
+                    src={entry.sourceImageUrl}
                     alt={`Collective portrait ${entry.shortCode}`}
                   />
                 )}

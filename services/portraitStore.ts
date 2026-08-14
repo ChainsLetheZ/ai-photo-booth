@@ -210,17 +210,21 @@ export function subscribeToWallEntries(
 ) {
   if (isTencentCloudSite) {
     let stopped = false;
-    let known = new Set<string>();
+    let known = new Map<string, string>();
     const poll = async () => {
       if (stopped) return;
       try {
         const response = await fetch(apiUrl('/entries'), { cache: 'no-store' });
         if (!response.ok) throw new Error('Cloud wall unavailable');
         const entries = (await response.json()) as WallEntry[];
-        const fresh = entries.filter((entry) => !known.has(entry.id));
+        const fresh = entries.filter(
+          (entry) => known.get(entry.id) !== (entry.sourceImageUrl ?? ''),
+        );
         if (known.size === 0) onSync(entries);
         else fresh.forEach(onEntry);
-        known = new Set(entries.map((entry) => entry.id));
+        known = new Map(
+          entries.map((entry) => [entry.id, entry.sourceImageUrl ?? '']),
+        );
         writeLocal(entries);
         onConnectionChange?.(true);
       } catch {

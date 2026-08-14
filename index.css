@@ -1196,17 +1196,6 @@ button:focus-visible, a:focus-visible { outline: 3px solid #00a8e0; outline-offs
   box-shadow: none;
   transform: none;
 }
-/* Records made before the clean wall image was introduced only contain the
-   complete 1377x1835 paper. Crop precisely to its 1085x1188 photo window so
-   old photos also appear without any frame. */
-.wall-river-photo img.is-composed-fallback {
-  position: absolute;
-  width: 126.91%;
-  height: 154.46%;
-  max-width: none;
-  left: -13.92%;
-  top: -16.50%;
-}
 
 @keyframes wall-river-pan {
   from { transform: translate3d(0, 0, 0); }

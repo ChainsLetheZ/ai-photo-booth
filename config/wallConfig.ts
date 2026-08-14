@@ -63,13 +63,8 @@ export const wallConfig = {
   // The finale. Operator-triggered only — never on a timer or a photo count;
   // it has to land when the room is watching.
   //
-  // The photos no longer draw the phrase. They gather into a collective wall,
-  // receive one restrained perception sweep, then leave the frame for type.
-  // Everything that used to live here —
-  // glyph rasterisation, ink area, stroke width, the minimum-photo ladder —
-  // existed to answer "can these photos draw this?", which is a question with
-  // no good answer: a tile large enough to carry a face is wider than a CJK
-  // stroke. The phrase now comes from `EVENT_SLOGAN` and always reads.
+  // The existing photo wall contracts into the eight Chinese headline
+  // characters, then hands over to the full master KV.
   assemble: {
     // Reserved for any future per-card gather offset.
     staggerMs: 14,

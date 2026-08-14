@@ -100,11 +100,11 @@ function fallbackTaglineTargets(tagline: string): FinalePixelTarget[] {
   context.textBaseline = 'middle';
   lines.forEach((line) => context.fillText(line, 800, 188));
   const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
-  const columns = 220;
-  // At the supplied KV's panoramic ratio, 41 rows make every cell match the
-  // source photo's portrait aspect. That is what makes the final mosaic read
-  // as one continuous, edge-to-edge sheet rather than a pile of cards.
-  const rows = 56;
+  const columns = 360;
+  // A portrait tile is roughly 0.91 as wide as it is tall. 360 × 185 keeps
+  // that ratio on a 16:9 LED canvas, so the tiny source photos touch on every
+  // edge rather than leaving coarse horizontal gaps between the glyph strokes.
+  const rows = 185;
   const targets: FinalePixelTarget[] = [];
   for (let row = 0; row < rows; row += 1) {
     for (let column = 0; column < columns; column += 1) {
@@ -138,8 +138,8 @@ async function rasteriseKvHeadline(tagline: string): Promise<FinalePixelTarget[]
   if (!context) return fallbackTaglineTargets(tagline);
   context.drawImage(image, 0, 0, canvas.width, canvas.height);
   const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
-  const columns = 220;
-  const rows = 56;
+  const columns = 360;
+  const rows = 185;
   const targets: FinalePixelTarget[] = [];
   const cellWidth = canvas.width / columns;
   const cellHeight = canvas.height / rows;

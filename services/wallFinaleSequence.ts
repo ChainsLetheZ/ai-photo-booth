@@ -8,9 +8,8 @@
  * - `freeze` belongs to the wall's own tiles, not to this module — they fade
  *   out on the opacity transition they already have. Nothing here animates
  *   during it.
- * - `converge`: portraits are already locked into one giant mosaic. A virtual
- *   camera travels across it and pulls back until the mosaic reads as the
- *   sampled pixels of the real master KV. Individual photos never fly around.
+ * - `converge`: portraits travel from their live wall positions into one tiny,
+ *   edge-to-edge mosaic sampled from the real master KV headline.
  * - `pulse`: a sweep crosses the grid once. This is the perception — the room
  *   watching the system register everyone who is there.
  * - `retreat`: the KV pixels contract behind a flash.
@@ -93,8 +92,9 @@ export function phaseStartMs(
 }
 
 /**
- * 64 × 36 portrait pixels: fine enough for a 16:9 KV to read as an image on a
- * large display. Available portraits repeat across the fixed mosaic.
+ * A bounded pool keeps the DOM safe when a very large venue wall is showing a
+ * small photo collection. Available portraits may be reused, but the mapper
+ * avoids immediate horizontal and vertical repeats.
  */
 export const FINALE_CARD_COUNT = 2304;
 /** Fallback field used only when the browser cannot rasterise the KV copy. */
@@ -239,7 +239,7 @@ export function finaleCardWidthPx(
   // from the stage itself so repeated portraits touch without becoming cards.
   // A 2% overlap removes sub-pixel seams only; grid cells remain unique and
   // neighbouring photos never occupy one another's position.
-  return Math.max(3, stageWidth / 160) * 1.02;
+  return Math.max(2, stageWidth / 360) * 1.01;
 }
 
 export interface FinaleCardFrame {

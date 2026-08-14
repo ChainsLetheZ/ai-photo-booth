@@ -68,9 +68,9 @@ layout.forEach((card, index) => {
 // Even a small group settles as compact points, rather than another large grid
 // of photo cards.
 assert.equal(finaleCardWidthPx(0, 1080, 80), 0);
-assert.ok(finaleCardWidthPx(1920, 1080, 8) > 12);
-assert.ok(finaleCardWidthPx(1920, 1080, 2304) > 12);
-assert.ok(finaleCardWidthPx(1920, 1080, 2304) < 13);
+assert.ok(finaleCardWidthPx(1920, 1080, 8) > 5);
+assert.ok(finaleCardWidthPx(1920, 1080, 2304) > 5);
+assert.ok(finaleCardWidthPx(1920, 1080, 2304) < 6);
 
 const capturedLayout = [{ ...layout[0], startX: 0.2, startY: 0.3, startScale: 12 }];
 const capturedStart = finaleFrameAt(

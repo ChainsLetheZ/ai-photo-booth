@@ -60,9 +60,10 @@ const GESTURE_TASK: GestureTask = {
 
 const assetBase = import.meta.env?.BASE_URL ?? '/';
 const BOOTH_VIDEO = {
-  ready: `${assetBase}videos/01-ready.mp4`,
-  gestureDemo: `${assetBase}videos/02-gesture-demo.mp4`,
-  captureStart: `${assetBase}videos/03-capture-start.mp4`,
+  idle: `${assetBase}videos/01-idle-loop.mp4`,
+  arrival: `${assetBase}videos/02-arrival-once.mp4`,
+  gesture: `${assetBase}videos/03-gesture-loop.mp4`,
+  captureHold: `${assetBase}videos/04-capture-hold.mp4`,
 } as const;
 
 function makeFallbackCapture() {
@@ -390,14 +391,22 @@ export default function BoothPage() {
     phaseHeldMs < taskStartsAt;
   const taskPhaseMs = Math.max(0, phaseHeldMs - taskStartsAt);
   const lockedConfirming = state === 'LOCKED' && phaseHeldMs < 750;
-  const showRightBlink = state === 'PERCEIVING' || state === 'LOCKED';
-  // Mount the capture animation with a new key so it always restarts when a
-  // fresh photo session reaches the 3-2-1 countdown. The ready loop owns the
-  // left slot at every other point in the experience.
-  const leftVideoSrc =
-    state === 'COUNTDOWN' || state === 'CAPTURE' || state === 'CREATE'
-      ? BOOTH_VIDEO.captureStart
-      : BOOTH_VIDEO.ready;
+  const showRightBlink =
+    state === 'PERCEIVING' && !introActive && !guidanceActive;
+  const captureSequenceActive =
+    state === 'COUNTDOWN' ||
+    state === 'CAPTURE' ||
+    state === 'CREATE' ||
+    state === 'RESULT';
+  // One action per session: the capture clip begins with the count-in and does
+  // not loop or remount while the QR is being prepared, so its final camera
+  // pose stays on screen until the experience resets.
+  const leftVideoSrc = captureSequenceActive
+    ? BOOTH_VIDEO.captureHold
+    : state === 'PERCEIVING'
+      ? BOOTH_VIDEO.arrival
+      : BOOTH_VIDEO.idle;
+  const leftVideoLoops = leftVideoSrc === BOOTH_VIDEO.idle;
   const photoImage = portrait?.imageData ?? null;
 
   let speaker: 'left' | 'right' | null = null;
@@ -472,6 +481,7 @@ export default function BoothPage() {
             key={leftVideoSrc}
             className="blink-video blink-video-left"
             src={leftVideoSrc}
+            loop={leftVideoLoops}
           />
         </div>
 
@@ -509,7 +519,7 @@ export default function BoothPage() {
             {showRightBlink && (
               <TransparentCharacterVideo
                 className="blink-video blink-video-right"
-                src={BOOTH_VIDEO.gestureDemo}
+                src={BOOTH_VIDEO.gesture}
               />
             )}
           </div>

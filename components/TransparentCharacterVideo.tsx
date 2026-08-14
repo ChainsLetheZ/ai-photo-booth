@@ -30,11 +30,13 @@ interface TransparentCharacterVideoProps {
   key?: React.Key;
   className: string;
   src: string;
+  loop?: boolean;
 }
 
 export default function TransparentCharacterVideo({
   className,
   src,
+  loop = true,
 }: TransparentCharacterVideoProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -106,7 +108,7 @@ export default function TransparentCharacterVideo({
         className="blink-video-source"
         src={src}
         autoPlay
-        loop
+        loop={loop}
         muted
         playsInline
         preload="auto"

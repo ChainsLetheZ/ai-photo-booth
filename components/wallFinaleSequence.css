@@ -59,6 +59,7 @@
   z-index: 2;
   transform-origin: 0 0;
   will-change: transform;
+  opacity: var(--mosaic-opacity, 0);
 }
 
 /* A bounded pool: one node per card the sequence actually shows, never a node
@@ -70,10 +71,9 @@
   top: 0;
   width: var(--finale-card-width, 160px);
   aspect-ratio: 1085 / 1188;
-  opacity: 0;
+  opacity: 1;
   overflow: hidden;
-  transform: translate3d(-50%, -50%, 0) scale(0.5);
-  will-change: transform, opacity;
+  transform: translate3d(-50%, -50%, 0);
 }
 .finale-seq-card img {
   display: block;

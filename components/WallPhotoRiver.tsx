@@ -125,7 +125,7 @@ export default function WallPhotoRiver({
                     height: `${100 / rows}%`,
                     '--wall-energy':
                       ENERGY_CONFIG[tile.entry.primaryEnergy].accent,
-                    '--river-offset-y': `${((tile.column + tile.row * 2) % 5 - 2) * 12}px`,
+                    '--river-offset-y': tile.column % 2 === 0 ? '0%' : '50%',
                   } as React.CSSProperties
                 }
               >

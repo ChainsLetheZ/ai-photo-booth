@@ -121,7 +121,7 @@ function rasteriseKv(source: string, count: number): Promise<FinalePixelTarget[]
         const offset = (row * columns + column) * 4;
         return {
           xUnit: (column + 0.5) / columns,
-          yUnit: (row + 0.5) / rows,
+          yUnit: (row + 0.5 + (column % 2) * 0.5) / rows,
           color: `rgb(${pixels[offset]}, ${pixels[offset + 1]}, ${pixels[offset + 2]})`,
         };
       }));
@@ -137,7 +137,9 @@ function fallbackKvGrid(count: number): FinalePixelTarget[] {
   const rows = Math.max(1, Math.ceil(count / columns));
   return Array.from({ length: count }, (_, index) => ({
     xUnit: ((index % columns) + 0.5) / columns,
-    yUnit: (Math.floor(index / columns) + 0.5) / rows,
+    yUnit:
+      (Math.floor(index / columns) + 0.5 + ((index % columns) % 2) * 0.5) /
+      rows,
   }));
 }
 
@@ -156,8 +158,6 @@ export default function WallFinaleSequence({
 }) {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const mosaicRef = useRef<HTMLDivElement | null>(null);
-  const cardRefs = useRef<(HTMLDivElement | null)[]>([]);
-  const imageRefs = useRef<(HTMLImageElement | null)[]>([]);
   const kvImageUrl = `${assetBase}kv/booth-kv.png`;
   const [sampledKvTargets, setSampledKvTargets] = useState<FinalePixelTarget[]>([]);
 
@@ -244,6 +244,9 @@ export default function WallFinaleSequence({
       root.style.setProperty('--tagline-scale', frame.taglineScale.toFixed(4));
       root.style.setProperty('--halo-opacity', frame.haloOpacity.toFixed(3));
       root.style.setProperty('--flash-opacity', frame.flashOpacity.toFixed(3));
+      const representative = frame.cards[0];
+      root.style.setProperty('--mosaic-opacity', (representative?.opacity ?? 0).toFixed(3));
+      root.style.setProperty('--kv-pixel-mix', (representative?.pixelMix ?? 0).toFixed(3));
       root.style.setProperty(
         '--kv-reveal-right',
         `${((1 - frame.kvRevealXUnit) * 100).toFixed(2)}%`,
@@ -253,35 +256,6 @@ export default function WallFinaleSequence({
         mosaic.style.transform = `matrix(${frame.cameraScale.toFixed(5)}, 0, 0, ${frame.cameraScale.toFixed(5)}, ${(frame.cameraXUnit * stageWidth).toFixed(2)}, ${(frame.cameraYUnit * stageHeight).toFixed(2)})`;
       }
 
-      const byIndex = new Map(frame.cards.map((card) => [card.entryIndex, card]));
-      cards.forEach((layout, poolIndex) => {
-        const card = cardRefs.current[poolIndex];
-        const image = imageRefs.current[poolIndex];
-        if (!card || !image) return;
-        const state = byIndex.get(layout.entryIndex);
-        const entry = particleEntries[layout.entryIndex];
-        if (!state || !entry) {
-          card.style.opacity = '0';
-          return;
-        }
-        const imageUrl = entry.sourceImageUrl ?? entry.imageUrl;
-        if (image.dataset.src !== imageUrl) {
-          image.src = imageUrl;
-          image.dataset.src = imageUrl;
-        }
-        const xPx = state.xUnit * stageWidth;
-        const yPx = state.yUnit * stageHeight;
-        card.style.transform = `translate3d(calc(${xPx.toFixed(2)}px - 50%), calc(${yPx.toFixed(2)}px - 50%), 0) scale(${state.scale.toFixed(3)}) rotate(${state.rotationDeg.toFixed(2)}deg)`;
-        card.style.opacity = state.opacity.toFixed(3);
-        card.style.setProperty('--card-blur', `${state.blurPx.toFixed(2)}px`);
-        card.style.setProperty('--card-glow', state.glow.toFixed(3));
-        card.style.setProperty('--kv-pixel-mix', state.pixelMix.toFixed(3));
-        card.style.setProperty('--kv-pixel-color', layout.targetColor ?? 'transparent');
-        card.style.setProperty(
-          '--card-energy',
-          ENERGY_CONFIG[entry.primaryEnergy].accent,
-        );
-      });
     };
 
     if (!active) {
@@ -311,23 +285,28 @@ export default function WallFinaleSequence({
       <div className="finale-seq-pulse" />
 
       <div ref={mosaicRef} className="finale-seq-cards">
-        {cards.map((layout, poolIndex) => (
+        {cards.map((layout) => {
+          const entry = particleEntries[layout.entryIndex];
+          return (
           <div
             className="finale-seq-card"
             key={layout.entryIndex}
-            ref={(node) => {
-              cardRefs.current[poolIndex] = node;
-            }}
+            style={
+              {
+                left: `${(layout.targetX * 100).toFixed(4)}%`,
+                top: `${(layout.targetY * 100).toFixed(4)}%`,
+                '--kv-pixel-color': layout.targetColor ?? 'transparent',
+              } as React.CSSProperties
+            }
           >
             <img
               alt=""
-              className={particleEntries[layout.entryIndex]?.sourceImageUrl ? '' : 'is-composed-fallback'}
-              ref={(node) => {
-                imageRefs.current[poolIndex] = node;
-              }}
+              className={entry?.sourceImageUrl ? '' : 'is-composed-fallback'}
+              src={entry?.sourceImageUrl ?? entry?.imageUrl}
             />
           </div>
-        ))}
+          );
+        })}
       </div>
 
       <div className="finale-seq-halo" />

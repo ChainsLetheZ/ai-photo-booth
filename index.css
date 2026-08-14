@@ -1179,8 +1179,9 @@ button:focus-visible, a:focus-visible { outline: 3px solid #00a8e0; outline-offs
   position: absolute;
   top: calc(50% + var(--river-offset-y, 0px));
   left: 50%;
-  height: calc(100% - var(--river-gap, 10px));
-  max-width: calc(100% - var(--river-gap, 10px));
+  width: 101%;
+  height: auto;
+  max-width: none;
   aspect-ratio: 1085 / 1188;
   overflow: hidden;
   transform: translate(-50%, -50%);

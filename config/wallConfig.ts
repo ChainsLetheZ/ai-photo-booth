@@ -41,10 +41,10 @@ export const wallConfig = {
   // read across the room, so the tile count is deliberately low. Photos repeat
   // to fill the field — position carries no identity here, the register does.
   scroll: {
-    columns: 4,
+    columns: 5,
     rows: 3,
     panSeconds: 150,
-    tileGapPx: 10,
+    tileGapPx: 0,
     fadeMs: 900,
   },
   // Reached only while a new capture is joining: the river breaks into floating

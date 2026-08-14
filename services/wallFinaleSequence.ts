@@ -39,7 +39,7 @@ export interface FinaleTiming {
 export const DEFAULT_FINALE_TIMING: FinaleTiming = {
   freezeMs: 700,
   convergeMs: 1400,
-  pulseMs: 1000,
+  pulseMs: 1200,
   retreatMs: 1000,
   taglineMs: 1300,
 };
@@ -93,10 +93,10 @@ export function phaseStartMs(
 }
 
 /**
- * 48 × 27 portrait pixels: fine enough for a 16:9 KV to read as an image on a
+ * 64 × 36 portrait pixels: fine enough for a 16:9 KV to read as an image on a
  * large display. Available portraits repeat across the fixed mosaic.
  */
-export const FINALE_CARD_COUNT = 1296;
+export const FINALE_CARD_COUNT = 2304;
 /** Fallback field used only when the browser cannot rasterise the KV copy. */
 const GRID_BOX = { width: 0.6, height: 0.54 };
 const SCATTER_SPREAD = 0.47;
@@ -321,7 +321,7 @@ export function finaleFrameAt(
     const convergeOpacity = convergeP <= 0 ? 0 : easeOutCubic(clamp(convergeP * 1.4, 0, 1));
     // Do not reveal the pixel artwork while photos are still visibly large.
     // The dissolve begins only in the final 18% of the camera pullback, when a
-    // portrait and one 48×27 KV pixel occupy effectively the same screen size.
+    // portrait and one 64×36 KV pixel occupy effectively the same screen size.
     const pixelMix = easeInOutCubic(clamp((convergeP - 0.82) / 0.18, 0, 1));
 
     // Pulse: settled at the grid cell; only glow and a small scale bump travel
@@ -381,7 +381,9 @@ export function finaleFrameAt(
     taglineBlurPx: 0,
     // The full-resolution KV dissolves over the complete scan duration. The
     // beam is only an accent; it no longer acts as a hard reveal boundary.
-    taglineOpacity: easeInOutCubic(pulseP),
+    // Hold the completed pixel KV briefly so it reads as an intentional frame,
+    // then dissolve gently to the master rather than changing immediately.
+    taglineOpacity: easeInOutCubic(clamp((pulseP - 0.25) / 0.75, 0, 1)),
     taglineScale: 1,
     haloOpacity: taglineEase * 0.32,
     cameraScale,

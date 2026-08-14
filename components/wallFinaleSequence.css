@@ -100,7 +100,7 @@
   pointer-events: none;
 }
 
-/* The actual pixel KV: the master artwork is rasterised to exactly 48×27,
+/* The actual pixel KV: the master artwork is rasterised to exactly 64×36,
    then enlarged with nearest-neighbour sampling. These are real square pixels,
    not portrait cards tinted to approximately matching colours. */
 .finale-seq-pixel-kv {

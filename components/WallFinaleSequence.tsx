@@ -335,8 +335,8 @@ export default function WallFinaleSequence({
       <canvas
         ref={pixelKvRef}
         className="finale-seq-pixel-kv"
-        width="48"
-        height="27"
+        width="64"
+        height="36"
       />
       <div className="finale-seq-halo" />
       <div className="finale-seq-type">

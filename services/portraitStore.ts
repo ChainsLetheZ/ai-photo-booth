@@ -31,10 +31,12 @@ function syncWebSocketUrl() {
 }
 
 export function publicPhotoUrl(claimToken: string) {
-  const publicBase = requiresTencentCloudUpload
-    ? tencentPublicAppUrl
-    : window.location.origin.replace(/\/$/, '');
-  return `${publicBase}/photo/${encodeURIComponent(claimToken)}`;
+  const encodedToken = encodeURIComponent(claimToken);
+  if (requiresTencentCloudUpload) {
+    return `${tencentPublicAppUrl}?photo=${encodedToken}`;
+  }
+  const publicBase = window.location.origin.replace(/\/$/, '');
+  return `${publicBase}/photo/${encodedToken}`;
 }
 
 function readLocal(): WallEntry[] {

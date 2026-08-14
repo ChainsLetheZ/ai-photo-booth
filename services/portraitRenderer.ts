@@ -125,6 +125,10 @@ export async function renderFuturePortrait(
     PHOTO_WINDOW.height,
     PHOTO_WINDOW.radius,
   );
+  // The live camera behaves like a mirror. Flip the captured frame when it is
+  // composed so the delivered photo matches what guests framed on screen.
+  context.translate(PHOTO_WINDOW.x * 2 + PHOTO_WINDOW.width, 0);
+  context.scale(-1, 1);
   coverImage(
     context,
     image,
@@ -142,7 +146,10 @@ export async function renderFuturePortrait(
 
   return {
     id: crypto.randomUUID(),
-    sourceImageData: capturedImage,
+    // The wall and QR use the finished portrait. Keeping the full camera frame
+    // in browser memory is useful for the current session, but it is no longer
+    // uploaded as a second large object.
+    sourceImageData: undefined,
     imageData: canvas.toDataURL('image/jpeg', 0.82),
     timestamp: Date.now(),
     primary,

@@ -316,7 +316,7 @@ export function finaleFrameAt(
     // behind the flash; the final KV copy is clean type, not tiny photographs.
     const retreatX = card.targetX;
     const retreatY = card.targetY;
-    const retreatScale = 1 - retreatEase * 0.38;
+    const retreatScale = 1 - retreatEase * 0.78;
     const retreatOpacity =
       1 - easeInOutCubic(clamp((retreatP - 0.42) / 0.58, 0, 1));
     const retreatBlur = retreatEase * 3;

@@ -335,12 +335,7 @@ export default function BoothPage() {
     phaseHeldMs < taskStartsAt;
   const taskPhaseMs = Math.max(0, phaseHeldMs - taskStartsAt);
   const lockedConfirming = state === 'LOCKED' && phaseHeldMs < 750;
-  const rightExiting =
-    state === 'LOCKED' && phaseHeldMs >= 750 && phaseHeldMs < 1350;
-  const showRightBlink =
-    (state === 'PERCEIVING' && phaseHeldMs >= taskStartsAt) ||
-    lockedConfirming ||
-    rightExiting;
+  const showRightBlink = state === 'PERCEIVING' || state === 'LOCKED';
   // Mount the capture animation with a new key so it always restarts when a
   // fresh photo session reaches the 3-2-1 countdown. The ready loop owns the
   // left slot at every other point in the experience.
@@ -386,6 +381,21 @@ export default function BoothPage() {
     dialogueLines = ['拍好啦！你的未来照片已经出发。', '扫二维码带走，也去大屏找找自己吧！'];
   }
 
+  const leftDialogueLines = speaker === 'left'
+    ? dialogueLines
+    : state === 'PERCEIVING'
+      ? ['我看到你啦，保持在画面里！'] as [string]
+      : state === 'LOCKED'
+        ? ['很好，就保持住！', '马上为你拍下这一刻。'] as [string, string]
+        : null;
+  const rightDialogueLines = speaker === 'right'
+    ? dialogueLines
+    : state === 'PERCEIVING'
+      ? GESTURE_TASK.lines
+      : state === 'LOCKED'
+        ? ['姿势识别成功！', '准备好，看镜头！'] as [string, string]
+        : null;
+
   return (
     <main
       className="booth-v1"
@@ -410,12 +420,12 @@ export default function BoothPage() {
           />
         </div>
 
-        {speaker === 'left' && dialogueLines && state !== 'COUNTDOWN' && (
+        {leftDialogueLines && state !== 'COUNTDOWN' && (
           <div
             className={`blink-dialogue speaker-left state-${state.toLowerCase()}`}
             key={`${state}-left`}
           >
-            {dialogueLines.map((line) => <p key={line}>{line}</p>)}
+            {leftDialogueLines.map((line) => <p key={line}>{line}</p>)}
           </div>
         )}
 
@@ -449,12 +459,12 @@ export default function BoothPage() {
             )}
           </div>
 
-          {speaker === 'right' && dialogueLines && state !== 'COUNTDOWN' && (
+          {rightDialogueLines && state !== 'COUNTDOWN' && (
             <div
               className={`blink-dialogue speaker-right state-${state.toLowerCase()}`}
               key={`${state}-right`}
             >
-              {dialogueLines.map((line) => (
+              {rightDialogueLines.map((line) => (
                 <p key={line}>{line}</p>
               ))}
               {((state === 'PERCEIVING' && phaseHeldMs >= taskStartsAt) ||

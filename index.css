@@ -1025,15 +1025,16 @@ button:focus-visible, a:focus-visible { outline: 3px solid #00a8e0; outline-offs
   display: block;
   width: 100%;
   height: 100%;
-  object-fit: cover;
-  object-position: center 28%;
+  object-fit: contain;
+  object-position: center;
   opacity: 0;
   animation: wall-photo-fade .6s ease-out forwards;
 }
 /* Energy colour is measured from the group's movement, so the wall's overall
    hue drifts with the crowd rather than with a per-photo guess. */
 .hex-wall-slot.is-filled {
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--wall-energy, #7bd5ef) 34%, transparent);
+  background: transparent;
+  box-shadow: none;
 }
 .hex-wall-slot.is-group {
   box-shadow:
@@ -1173,17 +1174,17 @@ button:focus-visible, a:focus-visible { outline: 3px solid #00a8e0; outline-offs
 .wall-river-tile {
   position: absolute;
   padding: calc(var(--river-gap, 10px) / 2);
-  overflow: hidden;
+  overflow: visible;
 }
 .wall-river-tile img {
+  display: block;
   width: 100%;
   height: 100%;
-  object-fit: cover;
-  object-position: center 30%;
-  border-radius: 3px;
-  box-shadow:
-    0 0 0 1px color-mix(in srgb, var(--wall-energy, #7bd5ef) 30%, transparent),
-    0 18px 50px rgba(0,0,0,.5);
+  object-fit: contain;
+  object-position: center;
+  border-radius: 0;
+  box-shadow: none;
+  transform: translateX(var(--river-offset-x, 0)) rotate(var(--river-rotation, 0deg));
 }
 
 @keyframes wall-river-pan {
@@ -2397,8 +2398,8 @@ button:focus-visible, a:focus-visible { outline: 3px solid #00a8e0; outline-offs
 .blink-right {
   right: 0;
   bottom: 0;
-  width: 25%;
-  height: 32%;
+  width: 34%;
+  height: 43%;
   opacity: 0;
   transform: translateX(42%);
   transition: opacity .28s ease, transform .38s ease;
@@ -2546,9 +2547,9 @@ button:focus-visible, a:focus-visible { outline: 3px solid #00a8e0; outline-offs
   top: 10%;
   width: 88%;
   height: 80%;
-  padding: 9px 9px 24px;
-  background: #fff;
-  box-shadow: 0 18px 42px rgba(0,0,0,.52);
+  padding: 0;
+  background: transparent;
+  box-shadow: none;
   transform-origin: center;
 }
 

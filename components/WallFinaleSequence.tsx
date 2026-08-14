@@ -13,6 +13,8 @@ import {
 import type { PrimaryEnergy, WallEntry } from '../types';
 import './wallFinaleSequence.css';
 
+const assetBase = import.meta.env?.BASE_URL ?? '/';
+
 export { finaleTotalMs as WALL_FINALE_TOTAL_MS };
 
 export interface FinaleStartPosition {
@@ -305,7 +307,8 @@ export default function WallFinaleSequence({
       <div className="finale-seq-halo" />
       <div className="finale-seq-flash" />
       <div className="finale-seq-type">
-        <h1>{taglineLines(tagline).join('\n')}</h1>
+        <img src={`${assetBase}kv/booth-kv.png`} alt="" />
+        <h1 className="sr-only">{taglineLines(tagline).join('\n')}</h1>
       </div>
     </div>
   );

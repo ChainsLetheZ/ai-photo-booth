@@ -125,16 +125,18 @@ export default function WallPhotoRiver({
                     height: `${100 / rows}%`,
                     '--wall-energy':
                       ENERGY_CONFIG[tile.entry.primaryEnergy].accent,
-                    '--river-offset-x': `${((Number(tile.key) % 5) - 2) * 7}px`,
-                    '--river-rotation': `${((Number(tile.key) % 7) - 3) * 0.45}deg`,
+                    '--river-offset-y': `${((tile.column + tile.row * 2) % 5 - 2) * 12}px`,
                   } as React.CSSProperties
                 }
               >
-                <img
-                  src={tile.entry.imageUrl}
-                  alt=""
-                  draggable={false}
-                />
+                <div className="wall-river-photo">
+                  <img
+                    className={tile.entry.sourceImageUrl ? '' : 'is-composed-fallback'}
+                    src={tile.entry.sourceImageUrl ?? tile.entry.imageUrl}
+                    alt=""
+                    draggable={false}
+                  />
+                </div>
               </div>
             ))}
           </div>

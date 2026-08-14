@@ -582,7 +582,7 @@ export default function WallPage() {
                 {entry && (
                   <img
                     className="hex-wall-photo"
-                    src={entry.imageUrl}
+                    src={entry.sourceImageUrl ?? entry.imageUrl}
                     alt={`Collective portrait ${entry.shortCode}`}
                   />
                 )}

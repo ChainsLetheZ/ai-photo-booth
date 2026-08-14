@@ -115,6 +115,26 @@ export async function renderFuturePortrait(
   const context = canvas.getContext('2d');
   if (!context) throw new Error('Canvas is unavailable');
 
+  // Keep a compact, unframed version specifically for the photo wall. The QR
+  // download continues to use the composed paper below.
+  const cleanPhoto = document.createElement('canvas');
+  cleanPhoto.width = PHOTO_WINDOW.width;
+  cleanPhoto.height = PHOTO_WINDOW.height;
+  const cleanContext = cleanPhoto.getContext('2d');
+  if (!cleanContext) throw new Error('Canvas is unavailable');
+  cleanContext.translate(cleanPhoto.width, 0);
+  cleanContext.scale(-1, 1);
+  coverImage(
+    cleanContext,
+    image,
+    image.width,
+    image.height,
+    0,
+    0,
+    cleanPhoto.width,
+    cleanPhoto.height,
+  );
+
   // Fill the central blank space with the guest photo first.
   context.save();
   clipRoundedRect(
@@ -125,20 +145,7 @@ export async function renderFuturePortrait(
     PHOTO_WINDOW.height,
     PHOTO_WINDOW.radius,
   );
-  // The live camera behaves like a mirror. Flip the captured frame when it is
-  // composed so the delivered photo matches what guests framed on screen.
-  context.translate(PHOTO_WINDOW.x * 2 + PHOTO_WINDOW.width, 0);
-  context.scale(-1, 1);
-  coverImage(
-    context,
-    image,
-    image.width,
-    image.height,
-    PHOTO_WINDOW.x,
-    PHOTO_WINDOW.y,
-    PHOTO_WINDOW.width,
-    PHOTO_WINDOW.height,
-  );
+  context.drawImage(cleanPhoto, PHOTO_WINDOW.x, PHOTO_WINDOW.y);
   context.restore();
 
   // Then restore every non-placeholder part of the supplied paper over it.
@@ -146,10 +153,8 @@ export async function renderFuturePortrait(
 
   return {
     id: crypto.randomUUID(),
-    // The wall and QR use the finished portrait. Keeping the full camera frame
-    // in browser memory is useful for the current session, but it is no longer
-    // uploaded as a second large object.
-    sourceImageData: undefined,
+    // The wall uses only this clean inner photo; the QR keeps the full paper.
+    sourceImageData: cleanPhoto.toDataURL('image/jpeg', 0.74),
     imageData: canvas.toDataURL('image/jpeg', 0.82),
     timestamp: Date.now(),
     primary,

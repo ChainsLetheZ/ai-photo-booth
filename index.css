@@ -1173,18 +1173,38 @@ button:focus-visible, a:focus-visible { outline: 3px solid #00a8e0; outline-offs
 }
 .wall-river-tile {
   position: absolute;
-  padding: calc(var(--river-gap, 10px) / 2);
   overflow: visible;
 }
-.wall-river-tile img {
+.wall-river-photo {
+  position: absolute;
+  top: calc(50% + var(--river-offset-y, 0px));
+  left: 50%;
+  height: calc(100% - var(--river-gap, 10px));
+  max-width: calc(100% - var(--river-gap, 10px));
+  aspect-ratio: 1085 / 1188;
+  overflow: hidden;
+  transform: translate(-50%, -50%);
+}
+.wall-river-photo img {
   display: block;
   width: 100%;
   height: 100%;
-  object-fit: contain;
+  object-fit: cover;
   object-position: center;
   border-radius: 0;
   box-shadow: none;
-  transform: translateX(var(--river-offset-x, 0)) rotate(var(--river-rotation, 0deg));
+  transform: none;
+}
+/* Records made before the clean wall image was introduced only contain the
+   complete 1377x1835 paper. Crop precisely to its 1085x1188 photo window so
+   old photos also appear without any frame. */
+.wall-river-photo img.is-composed-fallback {
+  position: absolute;
+  width: 126.91%;
+  height: 154.46%;
+  max-width: none;
+  left: -13.92%;
+  top: -16.50%;
 }
 
 @keyframes wall-river-pan {
@@ -2360,15 +2380,6 @@ button:focus-visible, a:focus-visible { outline: 3px solid #00a8e0; outline-offs
   color: rgba(255,255,255,.72);
   text-align: center;
   pointer-events: none;
-}
-
-/* Legacy wall records only retained the already-composited KV image. Zoom the
-   river crop into its clean upper area so the old bottom caption never leaks
-   into the live wall; newly captured source images remain untouched. */
-.wall-river-tile img.is-legacy-composed {
-  object-position: center;
-  transform: scale(3);
-  transform-origin: center 22%;
 }
 
 .blink-video {

@@ -255,7 +255,7 @@ export default function WallFinaleSequence({
           card.style.opacity = '0';
           return;
         }
-        const imageUrl = entry.imageUrl;
+        const imageUrl = entry.sourceImageUrl ?? entry.imageUrl;
         if (image.dataset.src !== imageUrl) {
           image.src = imageUrl;
           image.dataset.src = imageUrl;
@@ -312,6 +312,7 @@ export default function WallFinaleSequence({
           >
             <img
               alt=""
+              className={particleEntries[layout.entryIndex]?.sourceImageUrl ? '' : 'is-composed-fallback'}
               ref={(node) => {
                 imageRefs.current[poolIndex] = node;
               }}

@@ -227,12 +227,13 @@ export function layoutFinaleCards(
     const angle = index * GOLDEN_ANGLE + jitter(index, 3) * 1.4;
     const radius = Math.sqrt((index + 0.5) / indices.length) * SCATTER_SPREAD;
     const depthTier = Math.min(2, Math.floor(jitter(index, 8) * 3)) as 0 | 1 | 2;
-    // Three visibly separate depth waves. A small inner offset avoids a
-    // mechanical row launch while keeping the waves legible across the room.
-    // Each visible launch is brief. Settled cards are already tiny text
-    // pixels before the next depth wave becomes dense enough to cover them.
-    const layerDelay = [0.02, 0.34, 0.68][depthTier];
-    const layerDuration = [0.22, 0.2, 0.18][depthTier];
+    // Spread launches evenly through the entire converge interval. Depth still
+    // affects scale and stacking, but it must never turn into visible batches.
+    const continuousDelay =
+      0.02 + ((index * 0.61803398875) % 1) * 0.72;
+    // Each flight is brief; settled cards are already tiny letter pixels while
+    // other cards continue to stream in one at a time.
+    const layerDuration = 0.17 + depthTier * 0.02;
 
     return {
       entryIndex,
@@ -246,9 +247,7 @@ export function layoutFinaleCards(
       // as larger cards as well, then contract into their image-pixel.
       startScale: 7 + jitter(index, 5) * 3,
       depthTier,
-      // A little variation inside each layer avoids three visibly mechanical
-      // batches while preserving a clear back-to-front progression.
-      arrivalDelayUnit: layerDelay + jitter(index, 9) * 0.1,
+      arrivalDelayUnit: continuousDelay,
       arrivalDurationUnit: layerDuration,
     };
   });

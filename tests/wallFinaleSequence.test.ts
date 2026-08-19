@@ -65,7 +65,7 @@ layout.forEach((card, index) => {
   assert.ok(card.startX >= 0 && card.startX <= 1);
   assert.ok(card.startY >= 0 && card.startY <= 1);
   assert.ok(card.depthTier >= 0 && card.depthTier <= 2);
-  assert.ok(card.arrivalDelayUnit >= 0 && card.arrivalDelayUnit < 0.79);
+  assert.ok(card.arrivalDelayUnit >= 0 && card.arrivalDelayUnit < 0.75);
   assert.ok(card.arrivalDelayUnit + card.arrivalDurationUnit < 1);
 });
 assert.deepEqual(
@@ -99,14 +99,11 @@ const duringFreeze = finaleFrameAt(convergeStart * 0.5, layout);
 assert.ok(duringFreeze.cards.every((card) => card.opacity === 0));
 
 const midConverge = finaleFrameAt(
-  // This is inside the first depth wave: it has started but has not settled,
-  // while the foreground wave has not launched yet.
+  // Pick an early point in the continuous flow.
   convergeStart + DEFAULT_FINALE_TIMING.convergeMs * 0.18,
   layout,
 );
-// At the halfway mark only the back wave is guaranteed to be in flight; the
-// foreground wave deliberately has not launched yet.
-const probe = layout.find((card) => card.depthTier === 0)!;
+const probe = layout.find((card) => card.arrivalDelayUnit < 0.1)!;
 const probeMid = midConverge.cards.find((card) => card.entryIndex === probe.entryIndex)!;
 assert.ok(probeMid.opacity > 0 && probeMid.opacity <= 1);
 assert.ok(probeMid.xUnit > Math.min(probe.startX, probe.targetX));
@@ -116,9 +113,8 @@ assert.ok(probeMid.yUnit < Math.max(probe.startY, probe.targetY));
 assert.equal(midConverge.cameraScale, 1);
 assert.ok(probeMid.pixelMix >= 0 && probeMid.pixelMix < 1);
 
-// At one instant the back layer has travelled farther and shrunk more than
-// the foreground layer. This is the visible depth separation the old global
-// ease curve could not produce.
+// Depth is still represented, but launch time is independent of it: this must
+// read as one continuous stream, never three batches.
 const farIndex = layout.findIndex((card) => card.depthTier === 0);
 const nearIndex = layout.findIndex((card) => card.depthTier === 2);
 const farLayout = layout[farIndex];
@@ -139,10 +135,12 @@ const nearTravel = Math.hypot(
   nearLayout.targetX - nearLayout.startX,
   nearLayout.targetY - nearLayout.startY,
 ));
-assert.ok(farTravel > nearTravel + 0.25);
+assert.ok(farTravel >= 0 && farTravel <= 1);
+assert.ok(nearTravel >= 0 && nearTravel <= 1);
 const farShrink = (farLayout.startScale - farFrame.scale) / (farLayout.startScale - 1);
 const nearShrink = (nearLayout.startScale - nearFrame.scale) / (nearLayout.startScale - 1);
-assert.ok(farShrink > nearShrink + 0.25);
+assert.ok(farShrink >= 0 && farShrink <= 1);
+assert.ok(nearShrink >= 0 && nearShrink <= 1);
 
 const convergeEnd = finaleFrameAt(pulseStart - 1, layout);
 assert.ok(Math.abs(convergeEnd.cameraScale - 1) < 0.001);

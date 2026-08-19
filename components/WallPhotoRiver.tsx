@@ -1,4 +1,4 @@
-import React, { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
+import React, { useEffect, useMemo, useRef } from 'react';
 import { wallConfig } from '../config/wallConfig';
 import { ENERGY_CONFIG } from '../constants';
 import type { WallEntry } from '../types';
@@ -9,14 +9,9 @@ const wallRiverSoundtrackUrl =
   `${import.meta.env.BASE_URL}audio/wall-river-digital-clouds.mp3`;
 
 /**
- * The wall at rest: photos large enough to read across the room, drifting
- * diagonally without end.
- *
- * Four copies of the same field are laid out in a 2×2 block and the whole block
- * translates by exactly half its size, so the moment the loop restarts the
- * content under every pixel is identical and the seam is invisible. Photos
- * repeat to fill the field — here a tile is a face, not a place. Identity lives
- * in the hex register, which is a different formation.
+ * The wall at rest is a fixed, panoramic field. The camera never travels: each
+ * photograph approaches from the lower-right foreground in its own beat, then
+ * the complete field gently streams towards the upper-left.
  */
 export default function WallPhotoRiver({
   entries,
@@ -27,8 +22,6 @@ export default function WallPhotoRiver({
   active: boolean;
   freeze?: boolean;
 }) {
-  const panRef = useRef<HTMLDivElement | null>(null);
-  const freezeAnimationRef = useRef<Animation | null>(null);
   const soundtrackRef = useRef<HTMLAudioElement | null>(null);
   const soundtrackActive = active && !freeze;
   const tiles = useMemo(() => {
@@ -55,49 +48,6 @@ export default function WallPhotoRiver({
       };
     });
   }, [entries]);
-
-  useLayoutEffect(() => {
-    const pan = panRef.current;
-    freezeAnimationRef.current?.cancel();
-    freezeAnimationRef.current = null;
-    if (!pan || !freeze) return;
-
-    // Capture the composited position, then travel only a few more pixels with
-    // a strong ease-out. The river brakes without snapping to its keyframe.
-    const current = getComputedStyle(pan).transform;
-    const matrix = new DOMMatrixReadOnly(current === 'none' ? undefined : current);
-    const keyframes = [0, 0.25, 0.5, 0.75, 1].map((offset) => {
-      // p(t) = 2t - t²: constant negative acceleration, landing at zero
-      // velocity instead of relying on a browser-dependent easing curve.
-      const progress = 2 * offset - offset * offset;
-      return {
-        offset,
-        transform: new DOMMatrix([
-          matrix.a,
-          matrix.b,
-          matrix.c,
-          matrix.d,
-          matrix.e - 2.2 * progress,
-          matrix.f - 1.5 * progress,
-        ]).toString(),
-      };
-    });
-    const animation = pan.animate(
-      keyframes,
-      {
-        duration: 700,
-        easing: 'linear',
-        fill: 'forwards',
-      },
-    );
-    freezeAnimationRef.current = animation;
-    return () => {
-      animation.cancel();
-      if (freezeAnimationRef.current === animation) {
-        freezeAnimationRef.current = null;
-      }
-    };
-  }, [freeze]);
 
   useEffect(() => {
     const soundtrack = soundtrackRef.current;
@@ -149,28 +99,37 @@ export default function WallPhotoRiver({
           } as React.CSSProperties
         }
       >
-        <div
-          ref={panRef}
-          className={`wall-river-pan ${active || freeze ? 'is-panning' : ''}`}
-        >
+        <div className={`wall-river-pan ${active || freeze ? 'is-panning' : ''}`}>
           <div className="wall-river-panel">
-            {tiles.map((tile) => (
-              <div
+            {tiles.map((tile) => {
+              // A deterministic, diagonal arrival sequence. It means a fresh
+              // batch does not pop in together, while returning to the wall
+              // gives every existing image the same readable formation.
+              const layer = (tile.column * 5 + tile.row * 3) % 5;
+              const enterDelay =
+                tile.column * 460 + tile.row * 680 + layer * 360;
+              const rowOffset = tile.column % 2 === 0 ? -10 : 0;
+              return (
+                <div
                 className="wall-river-tile"
                 key={tile.key}
                 data-entry-id={tile.entry?.id}
                 style={
                   {
                     left: `${(tile.column * 100) / columns}%`,
-                    top: `${(tile.row * 100) / rows}%`,
+                    // Brick the photo strips vertically. Every column remains
+                    // edge-to-edge with its own neighbours, but adjacent
+                    // columns no longer read as a rigid spreadsheet.
+                    top: `${(tile.row * 100) / rows + rowOffset}%`,
                     width: `${100 / columns}%`,
                     height: `${100 / rows}%`,
                     '--wall-energy':
                       tile.entry
                         ? ENERGY_CONFIG[tile.entry.primaryEnergy].accent
                         : undefined,
-                    '--river-offset-y':
-                      tile.column % 2 !== 0 ? '35%' : '0%',
+                    '--river-enter-delay': `${enterDelay}ms`,
+                    '--river-layer': layer,
+                    zIndex: layer + 1,
                   } as React.CSSProperties
                 }
               >
@@ -183,8 +142,9 @@ export default function WallPhotoRiver({
                     />
                   </div>
                 )}
-              </div>
-            ))}
+                </div>
+              );
+            })}
           </div>
         </div>
       </div>

@@ -26,6 +26,10 @@ const EMPTY_START_POSITIONS: FinaleStartMap = {};
 const assetBase = import.meta.env?.BASE_URL ?? '/';
 const FINALE_FIRST_FRAME_URL =
   `${assetBase}kv/finale-video-first-frame.jpeg`;
+// The supplied master KV is a 4724 × 1313 panorama. Keep the photo-letter
+// canvas on exactly that ratio; the former 16:9 canvas was being squeezed into
+// this stage and made the Chinese headline read vertically compressed.
+const MASTER_KV_RATIO = 4724 / 1313;
 
 /**
  * individual presence → collective convergence → AI perception → distilled
@@ -88,8 +92,8 @@ function taglineLines(tagline: string) {
 function fallbackTaglineTargets(tagline: string): FinalePixelTarget[] {
   if (typeof document === 'undefined') return [];
   const canvas = document.createElement('canvas');
-  canvas.width = 1600;
-  canvas.height = 900;
+  canvas.width = 2520;
+  canvas.height = Math.round(canvas.width / MASTER_KV_RATIO);
   const context = canvas.getContext('2d', { willReadFrequently: true });
   if (!context) return [];
   const lines = taglineLines(tagline);
@@ -97,16 +101,15 @@ function fallbackTaglineTargets(tagline: string): FinalePixelTarget[] {
   // The guest photos deliberately form the line in the physical centre of the
   // LED wall. The first-frame camera is calibrated to meet it here before it
   // pulls the title into the authored upper-right position.
-  context.font = '900 128px "PingFang SC", "Microsoft YaHei", "Noto Sans SC", sans-serif';
+  context.font = '900 172px "PingFang SC", "Microsoft YaHei", "Noto Sans SC", sans-serif';
   context.textAlign = 'center';
   context.textBaseline = 'middle';
-  lines.forEach((line) => context.fillText(line, 800, 450));
+  lines.forEach((line) => context.fillText(line, canvas.width / 2, canvas.height / 2));
   const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
   const columns = 360;
-  // A portrait tile is roughly 0.91 as wide as it is tall. 360 × 185 keeps
-  // that ratio on a 16:9 LED canvas, so the tiny source photos touch on every
-  // edge rather than leaving coarse horizontal gaps between the glyph strokes.
-  const rows = 185;
+  // A portrait tile is roughly 0.91 as wide as it is tall. Match the real KV
+  // strip rather than treating it as 16:9, otherwise the formed text squashes.
+  const rows = Math.round(columns / MASTER_KV_RATIO / (1085 / 1188));
   const targets: FinalePixelTarget[] = [];
   for (let row = 0; row < rows; row += 1) {
     for (let column = 0; column < columns; column += 1) {

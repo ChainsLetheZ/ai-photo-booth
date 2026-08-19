@@ -37,13 +37,13 @@ export const wallConfig = {
     queueBusyThreshold: 3,
     queueRushThreshold: 6,
   },
-  // Resting state of the wall: a slow diagonal river of large photos. Faces
-  // read across the room, so the tile count is deliberately low. Photos repeat
-  // to fill the field — position carries no identity here, the register does.
+  // Resting state: an edge-to-edge panoramic photo field. 20 × 5 makes each
+  // cell nearly the same aspect ratio as the uncropped booth portrait inside
+  // the master KV's wide strip, while leaving room for a real column offset.
   scroll: {
-    columns: 5,
-    rows: 3,
-    panSeconds: 150,
+    columns: 20,
+    rows: 5,
+    panSeconds: 70,
     tileGapPx: 0,
     fadeMs: 900,
   },

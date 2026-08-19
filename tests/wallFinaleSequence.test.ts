@@ -65,8 +65,8 @@ layout.forEach((card, index) => {
   assert.ok(card.startX >= 0 && card.startX <= 1);
   assert.ok(card.startY >= 0 && card.startY <= 1);
   assert.ok(card.depthTier >= 0 && card.depthTier <= 2);
-  assert.ok(card.arrivalDelayUnit >= 0 && card.arrivalDelayUnit < 0.27);
-  assert.ok(card.arrivalDelayUnit + card.arrivalDurationUnit < 0.95);
+  assert.ok(card.arrivalDelayUnit >= 0 && card.arrivalDelayUnit < 0.73);
+  assert.ok(card.arrivalDelayUnit + card.arrivalDurationUnit < 1);
 });
 assert.deepEqual(
   [...new Set(layout.map((card) => card.depthTier))].sort(),
@@ -99,10 +99,14 @@ const duringFreeze = finaleFrameAt(convergeStart * 0.5, layout);
 assert.ok(duringFreeze.cards.every((card) => card.opacity === 0));
 
 const midConverge = finaleFrameAt(
-  convergeStart + DEFAULT_FINALE_TIMING.convergeMs / 2,
+  // This is inside the first depth wave: it has started but has not settled,
+  // while the foreground wave has not launched yet.
+  convergeStart + DEFAULT_FINALE_TIMING.convergeMs * 0.3,
   layout,
 );
-const probe = layout[0];
+// At the halfway mark only the back wave is guaranteed to be in flight; the
+// foreground wave deliberately has not launched yet.
+const probe = layout.find((card) => card.depthTier === 0)!;
 const probeMid = midConverge.cards.find((card) => card.entryIndex === probe.entryIndex)!;
 assert.ok(probeMid.opacity > 0 && probeMid.opacity <= 1);
 assert.ok(probeMid.xUnit > Math.min(probe.startX, probe.targetX));

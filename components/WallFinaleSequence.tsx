@@ -21,7 +21,10 @@ export interface FinaleStartPosition {
   scale: number;
 }
 
-export type FinaleStartMap = Record<string, FinaleStartPosition>;
+// Keep every visible instance of a repeated portrait. The finale can then
+// launch copies from their real, separate wall positions rather than stacking
+// them at one remembered coordinate.
+export type FinaleStartMap = Record<string, FinaleStartPosition[]>;
 const EMPTY_START_POSITIONS: FinaleStartMap = {};
 const assetBase = import.meta.env?.BASE_URL ?? '/';
 const FINALE_FIRST_FRAME_URL =
@@ -109,7 +112,7 @@ function fallbackTaglineTargets(tagline: string): FinalePixelTarget[] {
   const columns = 360;
   // A portrait tile is roughly 0.91 as wide as it is tall. Match the real KV
   // strip rather than treating it as 16:9, otherwise the formed text squashes.
-  const rows = Math.round(columns / MASTER_KV_RATIO / (1085 / 1188));
+  const rows = Math.round(columns * (1085 / 1188) / MASTER_KV_RATIO);
   const targets: FinalePixelTarget[] = [];
   for (let row = 0; row < rows; row += 1) {
     for (let column = 0; column < columns; column += 1) {
@@ -179,10 +182,16 @@ export default function WallFinaleSequence({
     return slots;
   }, [ordered, pixelTargets.length]);
   const cards = useMemo(() => {
+    const occurrenceByEntry = new Map<string, number>();
     const indices = particleEntries.map((_, index) => index);
     return layoutFinaleCards(indices, pixelTargets).map((card) => {
       const entry = particleEntries[card.entryIndex];
-      const start = entry ? startPositions[entry.id] : undefined;
+      const occurrence = entry
+        ? (occurrenceByEntry.get(entry.id) ?? 0)
+        : 0;
+      if (entry) occurrenceByEntry.set(entry.id, occurrence + 1);
+      const starts = entry ? startPositions[entry.id] : undefined;
+      const start = starts?.[occurrence % Math.max(1, starts.length)];
       return start
         ? {
             ...card,

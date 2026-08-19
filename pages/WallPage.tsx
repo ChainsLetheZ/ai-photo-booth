@@ -59,10 +59,7 @@ function captureFinaleStarts(
   );
   if (finalCardWidth <= 0) return {};
 
-  const best = new Map<
-    string,
-    { score: number; xUnit: number; yUnit: number; scale: number }
-  >();
+  const starts = new Map<string, FinaleStartPosition[]>();
   stage
     .querySelectorAll<HTMLImageElement>('.wall-river-tile[data-entry-id] img')
     .forEach((image) => {
@@ -82,25 +79,17 @@ function captureFinaleStarts(
       if (visibleArea <= 0) return;
       const x = rect.left + rect.width / 2;
       const y = rect.top + rect.height / 2;
-      const distanceFromCenter = Math.hypot(
-        x - (stageRect.left + stageRect.width / 2),
-        y - (stageRect.top + stageRect.height / 2),
-      );
-      const score = visibleArea - distanceFromCenter * 0.1;
-      if ((best.get(id)?.score ?? -Infinity) >= score) return;
-      best.set(id, {
-        score,
+      const list = starts.get(id) ?? [];
+      list.push({
         xUnit: Math.min(1, Math.max(0, (x - stageRect.left) / stageRect.width)),
         yUnit: Math.min(1, Math.max(0, (y - stageRect.top) / stageRect.height)),
         scale: Math.min(28, Math.max(1, rect.width / finalCardWidth)),
       });
+      starts.set(id, list);
     });
 
   return Object.fromEntries(
-    [...best].map(([id, { xUnit, yUnit, scale }]) => [
-      id,
-      { xUnit, yUnit, scale },
-    ]),
+    [...starts],
   );
 }
 

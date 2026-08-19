@@ -38,7 +38,8 @@ export interface FinaleTiming {
 
 export const DEFAULT_FINALE_TIMING: FinaleTiming = {
   freezeMs: 700,
-  convergeMs: 2400,
+  // A clear, layered gathering rather than a single visual collapse.
+  convergeMs: 5200,
   pulseMs: 1200,
   retreatMs: 1800,
   taglineMs: 1500,
@@ -226,8 +227,10 @@ export function layoutFinaleCards(
     const angle = index * GOLDEN_ANGLE + jitter(index, 3) * 1.4;
     const radius = Math.sqrt((index + 0.5) / indices.length) * SCATTER_SPREAD;
     const depthTier = Math.min(2, Math.floor(jitter(index, 8) * 3)) as 0 | 1 | 2;
-    const layerDelay = [0, 0.12, 0.24][depthTier];
-    const layerDuration = [0.74, 0.71, 0.68][depthTier];
+    // Three visibly separate depth waves. A small inner offset avoids a
+    // mechanical row launch while keeping the waves legible across the room.
+    const layerDelay = [0.02, 0.28, 0.56][depthTier];
+    const layerDuration = [0.4, 0.34, 0.27][depthTier];
 
     return {
       entryIndex,
@@ -243,7 +246,7 @@ export function layoutFinaleCards(
       depthTier,
       // A little variation inside each layer avoids three visibly mechanical
       // batches while preserving a clear back-to-front progression.
-      arrivalDelayUnit: layerDelay + jitter(index, 9) * 0.02,
+      arrivalDelayUnit: layerDelay + jitter(index, 9) * 0.16,
       arrivalDurationUnit: layerDuration,
     };
   });

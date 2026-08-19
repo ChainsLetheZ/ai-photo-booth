@@ -86,9 +86,9 @@ function captureFinaleStarts(
         // edge arrivals instead of forcing every photo to begin in-frame.
         xUnit: (x - stageRect.left) / stageRect.width,
         yUnit: (y - stageRect.top) / stageRect.height,
-        // A flight card is intentionally smaller than its wall tile. Large
-        // cards are readable at launch but no longer blanket the display.
-        scale: Math.min(6.5, Math.max(1, rect.width / finalCardWidth)),
+        // Match the existing river tile at t=0. The visible wall photo itself
+        // then shrinks into the letterform — there is no thumbnail duplicate.
+        scale: Math.min(64, Math.max(1, rect.width / finalCardWidth)),
       });
       starts.set(id, list);
     });

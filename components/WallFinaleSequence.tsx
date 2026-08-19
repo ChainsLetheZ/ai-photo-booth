@@ -2,7 +2,6 @@ import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 're
 import { ENERGY_CONFIG } from '../constants';
 import {
   DEFAULT_FINALE_TIMING,
-  FINALE_CARD_COUNT,
   finaleCardWidthPx,
   finaleFrameAt,
   finaleTotalMs,
@@ -33,9 +32,6 @@ const FINALE_FIRST_FRAME_URL =
 // canvas on exactly that ratio; the former 16:9 canvas was being squeezed into
 // this stage and made the Chinese headline read vertically compressed.
 const MASTER_KV_RATIO = 4724 / 1313;
-// Fine enough to read as photography in the finished word, but bounded so
-// thousands of large cards never blanket the screen while they are travelling.
-const MAX_RENDERED_LETTER_CARDS = 1600;
 
 /**
  * individual presence → collective convergence → AI perception → distilled
@@ -164,43 +160,34 @@ export default function WallFinaleSequence({
     if (!cancelled) setPixelTargets(targets);
     return () => { cancelled = true; };
   }, [tagline]);
-  const renderedTargets = useMemo(() => {
-    if (pixelTargets.length <= MAX_RENDERED_LETTER_CARDS) return pixelTargets;
-    return Array.from({ length: MAX_RENDERED_LETTER_CARDS }, (_, index) =>
-      pixelTargets[Math.floor((index / MAX_RENDERED_LETTER_CARDS) * pixelTargets.length)],
-    );
-  }, [pixelTargets]);
+  // These are the physical images currently visible in the river — not a
+  // synthetic cloud of copies. One visible wall tile gets one finale card.
+  const sourceInstances = useMemo(
+    () => ordered.flatMap((entry) =>
+      (startPositions[entry.id] ?? []).map((start) => ({ entry, start })),
+    ),
+    [ordered, startPositions],
+  );
   const particleEntries = useMemo(() => {
-    if (ordered.length === 0) return [];
-    const count = renderedTargets.length;
-    const slots = Array<WallEntry | undefined>(count).fill(undefined);
-    const pixelColumns = Math.max(1, Math.round(Math.sqrt(count * (16 / 9))));
-    const recent = ordered.slice(-Math.min(ordered.length, FINALE_CARD_COUNT));
-    for (let index = 0; index < count; index += 1) {
-      const column = index % pixelColumns;
-      const row = Math.floor(index / pixelColumns);
-      const left = column > 0 ? slots[index - 1] : undefined;
-      const above = row > 0 ? slots[index - pixelColumns] : undefined;
-      const candidates = recent.filter(
-        (entry) => entry.id !== left?.id && entry.id !== above?.id,
-      );
-      if (candidates.length > 0) {
-        slots[index] = candidates[(index * 11 + row * 5 + column * 7) % candidates.length];
-      }
+    if (sourceInstances.length > 0) {
+      return sourceInstances.map((source) => source.entry);
     }
-    return slots;
-  }, [ordered, renderedTargets.length]);
+    // The fallback only covers an operator triggering the finale before the
+    // river has painted. In normal use every card comes from a visible photo.
+    return ordered;
+  }, [ordered, sourceInstances]);
+  const renderedTargets = useMemo(() => {
+    const count = particleEntries.length;
+    if (count === 0 || pixelTargets.length === 0) return [];
+    if (pixelTargets.length <= count) return pixelTargets;
+    return Array.from({ length: count }, (_, index) =>
+      pixelTargets[Math.floor(((index + 0.5) / count) * pixelTargets.length)],
+    );
+  }, [particleEntries.length, pixelTargets]);
   const cards = useMemo(() => {
-    const occurrenceByEntry = new Map<string, number>();
     const indices = particleEntries.map((_, index) => index);
     return layoutFinaleCards(indices, renderedTargets).map((card) => {
-      const entry = particleEntries[card.entryIndex];
-      const occurrence = entry
-        ? (occurrenceByEntry.get(entry.id) ?? 0)
-        : 0;
-      if (entry) occurrenceByEntry.set(entry.id, occurrence + 1);
-      const starts = entry ? startPositions[entry.id] : undefined;
-      const start = starts?.[occurrence % Math.max(1, starts.length)];
+      const start = sourceInstances[card.entryIndex]?.start;
       return start
         ? {
             ...card,
@@ -210,7 +197,7 @@ export default function WallFinaleSequence({
           }
         : card;
     });
-  }, [particleEntries, renderedTargets, startPositions]);
+  }, [particleEntries, renderedTargets, sourceInstances]);
   const field = useMemo(() => fieldGradient(entries), [entries]);
   const accent = useMemo(() => dominantAccent(entries), [entries]);
 

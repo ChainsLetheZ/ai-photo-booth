@@ -1,10 +1,12 @@
-import React, { useLayoutEffect, useMemo, useRef } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { wallConfig } from '../config/wallConfig';
 import { ENERGY_CONFIG } from '../constants';
 import type { WallEntry } from '../types';
 
 const { columns, rows, panSeconds, tileGapPx } = wallConfig.scroll;
 const TILE_COUNT = columns * rows;
+const wallRiverSoundtrackUrl =
+  `${import.meta.env.BASE_URL}audio/wall-river-digital-clouds.mp3`;
 
 /**
  * The wall at rest: photos large enough to read across the room, drifting
@@ -27,6 +29,8 @@ export default function WallPhotoRiver({
 }) {
   const panRef = useRef<HTMLDivElement | null>(null);
   const freezeAnimationRef = useRef<Animation | null>(null);
+  const soundtrackRef = useRef<HTMLAudioElement | null>(null);
+  const soundtrackActive = active && !freeze;
   const tiles = useMemo(() => {
     if (entries.length === 0) return [];
     const recent = entries.slice(-TILE_COUNT);
@@ -95,27 +99,61 @@ export default function WallPhotoRiver({
     };
   }, [freeze]);
 
+  useEffect(() => {
+    const soundtrack = soundtrackRef.current;
+    if (!soundtrack) return;
+    soundtrack.volume = 0.18;
+    if (soundtrackActive) {
+      // Browsers permit this straight away on displays with media permission;
+      // the gesture listeners below cover the first interaction everywhere else.
+      void soundtrack.play().catch(() => undefined);
+      return;
+    }
+    soundtrack.pause();
+  }, [soundtrackActive]);
+
+  useEffect(() => {
+    const unlockSoundtrack = () => {
+      if (!soundtrackActive) return;
+      void soundtrackRef.current?.play().catch(() => undefined);
+    };
+    window.addEventListener('pointerdown', unlockSoundtrack);
+    window.addEventListener('keydown', unlockSoundtrack);
+    return () => {
+      window.removeEventListener('pointerdown', unlockSoundtrack);
+      window.removeEventListener('keydown', unlockSoundtrack);
+    };
+  }, [soundtrackActive]);
+
   if (tiles.length === 0) return null;
 
   return (
-    <div
-      className={`wall-river ${active ? 'is-active' : ''}`}
-      aria-hidden="true"
-      style={
-        {
-          '--river-pan': `${panSeconds}s`,
-          '--river-gap': `${tileGapPx}px`,
-          '--river-columns': columns,
-          '--river-rows': rows,
-          '--river-fade': `${wallConfig.scroll.fadeMs}ms`,
-        } as React.CSSProperties
-      }
-    >
+    <>
+      <audio
+        ref={soundtrackRef}
+        src={wallRiverSoundtrackUrl}
+        loop
+        preload="auto"
+        aria-hidden="true"
+      />
       <div
-        ref={panRef}
-        className={`wall-river-pan ${active || freeze ? 'is-panning' : ''}`}
+        className={`wall-river ${active ? 'is-active' : ''}`}
+        aria-hidden="true"
+        style={
+          {
+            '--river-pan': `${panSeconds}s`,
+            '--river-gap': `${tileGapPx}px`,
+            '--river-columns': columns,
+            '--river-rows': rows,
+            '--river-fade': `${wallConfig.scroll.fadeMs}ms`,
+          } as React.CSSProperties
+        }
       >
-        <div className="wall-river-panel">
+        <div
+          ref={panRef}
+          className={`wall-river-pan ${active || freeze ? 'is-panning' : ''}`}
+        >
+          <div className="wall-river-panel">
             {tiles.map((tile) => (
               <div
                 className="wall-river-tile"
@@ -136,15 +174,20 @@ export default function WallPhotoRiver({
                   } as React.CSSProperties
                 }
               >
-                {tile.entry?.sourceImageUrl && (
+                {tile.entry && (
                   <div className="wall-river-photo">
-                    <img src={tile.entry.sourceImageUrl} alt="" draggable={false} />
+                    <img
+                      src={tile.entry.sourceImageUrl ?? tile.entry.imageUrl}
+                      alt=""
+                      draggable={false}
+                    />
                   </div>
                 )}
               </div>
             ))}
+          </div>
         </div>
       </div>
-    </div>
+    </>
   );
 }

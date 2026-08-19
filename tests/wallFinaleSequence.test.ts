@@ -4,6 +4,7 @@ import {
   DEFAULT_FINALE_TIMING,
   FINALE_CARD_COUNT,
   FINALE_PHASE_ORDER,
+  FINALE_VIDEO_FRAME_GEOMETRY,
   finaleCardWidthPx,
   finaleDurationMs,
   finaleFrameAt,
@@ -63,7 +64,15 @@ layout.forEach((card, index) => {
   assert.equal(card.targetRotationDeg, 0, 'pixels settle without card tilts');
   assert.ok(card.startX >= 0 && card.startX <= 1);
   assert.ok(card.startY >= 0 && card.startY <= 1);
+  assert.ok(card.depthTier >= 0 && card.depthTier <= 2);
+  assert.ok(card.arrivalDelayUnit >= 0 && card.arrivalDelayUnit < 0.27);
+  assert.ok(card.arrivalDelayUnit + card.arrivalDurationUnit < 0.95);
 });
+assert.deepEqual(
+  [...new Set(layout.map((card) => card.depthTier))].sort(),
+  [0, 1, 2],
+  'the letterform contains back, middle, and foreground waves',
+);
 
 // Even a small group settles as compact points, rather than another large grid
 // of photo cards.
@@ -95,13 +104,41 @@ const midConverge = finaleFrameAt(
 );
 const probe = layout[0];
 const probeMid = midConverge.cards.find((card) => card.entryIndex === probe.entryIndex)!;
-assert.ok(probeMid.opacity > 0 && probeMid.opacity < 1);
+assert.ok(probeMid.opacity > 0 && probeMid.opacity <= 1);
 assert.ok(probeMid.xUnit > Math.min(probe.startX, probe.targetX));
 assert.ok(probeMid.xUnit < Math.max(probe.startX, probe.targetX));
 assert.ok(probeMid.yUnit > Math.min(probe.startY, probe.targetY));
 assert.ok(probeMid.yUnit < Math.max(probe.startY, probe.targetY));
 assert.equal(midConverge.cameraScale, 1);
 assert.ok(probeMid.pixelMix >= 0 && probeMid.pixelMix < 1);
+
+// At one instant the back layer has travelled farther and shrunk more than
+// the foreground layer. This is the visible depth separation the old global
+// ease curve could not produce.
+const farIndex = layout.findIndex((card) => card.depthTier === 0);
+const nearIndex = layout.findIndex((card) => card.depthTier === 2);
+const farLayout = layout[farIndex];
+const nearLayout = layout[nearIndex];
+const farFrame = midConverge.cards[farIndex];
+const nearFrame = midConverge.cards[nearIndex];
+const farTravel = Math.hypot(
+  farFrame.xUnit - farLayout.startX,
+  farFrame.yUnit - farLayout.startY,
+) / Math.max(0.0001, Math.hypot(
+  farLayout.targetX - farLayout.startX,
+  farLayout.targetY - farLayout.startY,
+));
+const nearTravel = Math.hypot(
+  nearFrame.xUnit - nearLayout.startX,
+  nearFrame.yUnit - nearLayout.startY,
+) / Math.max(0.0001, Math.hypot(
+  nearLayout.targetX - nearLayout.startX,
+  nearLayout.targetY - nearLayout.startY,
+));
+assert.ok(farTravel > nearTravel + 0.25);
+const farShrink = (farLayout.startScale - farFrame.scale) / (farLayout.startScale - 1);
+const nearShrink = (nearLayout.startScale - nearFrame.scale) / (nearLayout.startScale - 1);
+assert.ok(farShrink > nearShrink + 0.25);
 
 const convergeEnd = finaleFrameAt(pulseStart - 1, layout);
 assert.ok(Math.abs(convergeEnd.cameraScale - 1) < 0.001);
@@ -124,17 +161,50 @@ assert.equal(midScan.taglineOpacity, 0);
 assert.equal(midScan.pulseXUnit, null);
 assert.ok(midScan.cards.every((card) => card.glow === 0));
 
-// The sampled KV pixels contract and fade behind a flash before the clean,
-// high-resolution master KV takes over.
+// At the hand-off the measured video headline has the same centre and apparent
+// width as the central photo headline, with no uncovered screen edge.
+const retreatFocus = finaleFrameAt(retreatStart, layout);
+const geometry = FINALE_VIDEO_FRAME_GEOMETRY;
+const focusedHeadlineX =
+  retreatFocus.kvTranslateXUnit + geometry.headlineCenterXUnit * retreatFocus.kvScale;
+const focusedHeadlineY =
+  retreatFocus.kvTranslateYUnit + geometry.headlineCenterYUnit * retreatFocus.kvScale;
+assert.ok(Math.abs(focusedHeadlineX - geometry.photoHeadlineCenterXUnit) < 0.0001);
+assert.ok(Math.abs(focusedHeadlineY - geometry.photoHeadlineCenterYUnit) < 0.0001);
+assert.ok(
+  Math.abs(
+    geometry.headlineWidthUnit * retreatFocus.kvScale -
+      geometry.photoHeadlineWidthUnit,
+  ) < 0.001,
+);
+assert.ok(retreatFocus.kvTranslateXUnit <= 0);
+assert.ok(retreatFocus.kvTranslateYUnit <= 0);
+assert.ok(retreatFocus.kvTranslateXUnit + retreatFocus.kvScale >= 1);
+assert.ok(retreatFocus.kvTranslateYUnit + retreatFocus.kvScale >= 1);
+
+// The photo/KV cross-fade completes before the pullback begins, so the title
+// never tries to move while it is still made of guest portraits.
+const handoffEnd = finaleFrameAt(
+  retreatStart + DEFAULT_FINALE_TIMING.retreatMs * 0.42,
+  layout,
+);
+assert.ok(handoffEnd.cards.every((card) => card.opacity < 0.001));
+assert.equal(handoffEnd.kvOpacity, 1);
+assert.ok(Math.abs(handoffEnd.kvScale - geometry.focusScale) < 0.0001);
+
 const midRetreat = finaleFrameAt(
-  retreatStart + DEFAULT_FINALE_TIMING.retreatMs / 2,
+  retreatStart + DEFAULT_FINALE_TIMING.retreatMs * 0.7,
   layout,
 );
 midRetreat.cards.forEach((card) => {
-  assert.ok(card.opacity > 0.99);
+  assert.ok(card.opacity < 0.05);
   assert.equal(card.blurPx, 0);
   assert.equal(card.scale, 1);
 });
+assert.equal(midRetreat.kvOpacity, 1);
+assert.ok(midRetreat.kvScale > 1 && midRetreat.kvScale < geometry.focusScale);
+assert.ok(midRetreat.kvTranslateXUnit < 0);
+assert.ok(midRetreat.kvTranslateYUnit < 0);
 
 const noFlashFrame = finaleFrameAt(taglineStart - 40, layout);
 assert.equal(noFlashFrame.flashOpacity, 0);
@@ -148,12 +218,16 @@ locked.cards.forEach((card) => {
   assert.equal(card.scale, 1);
 });
 assert.equal(locked.taglineOpacity, 1);
+assert.equal(locked.kvOpacity, 1);
+assert.equal(locked.kvScale, 1);
+assert.ok(Math.abs(locked.kvTranslateXUnit) < 0.000001);
+assert.ok(Math.abs(locked.kvTranslateYUnit) < 0.000001);
 assert.equal(locked.kvRevealXUnit, 1);
 assert.equal(locked.flashOpacity, 0);
 assert.equal(locked.haloOpacity, 0);
 
 const empty = finaleFrameAt(taglineStart, layoutFinaleCards([]));
-assert.equal(empty.taglineOpacity, 0);
+assert.equal(empty.taglineOpacity, 1);
 assert.equal(finaleFrameAt(total, layoutFinaleCards([])).taglineOpacity, 1);
 
 console.log('Wall finale photo-letterform tests passed.');

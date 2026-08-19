@@ -3,6 +3,7 @@ const Module = require('node:module');
 const path = require('node:path');
 
 const records = new Map();
+const tempUrlBatchSizes = [];
 
 function clone(value) {
   return JSON.parse(JSON.stringify(value));
@@ -20,10 +21,23 @@ const collection = {
       },
     };
   },
-  orderBy() {
+  orderBy(field, direction = 'asc') {
     return {
-      limit() {
-        return { async get() { return { data: [] }; } };
+      limit(count) {
+        return {
+          async get() {
+            const multiplier = direction === 'desc' ? -1 : 1;
+            const data = [...records.entries()]
+              .map(([id, value]) => ({ _id: id, ...clone(value) }))
+              .sort((left, right) => {
+                const leftValue = left[field] ?? '';
+                const rightValue = right[field] ?? '';
+                return String(leftValue).localeCompare(String(rightValue)) * multiplier;
+              })
+              .slice(0, count);
+            return { data };
+          },
+        };
       },
     };
   },
@@ -52,6 +66,8 @@ const app = {
     };
   },
   async getTempFileURL({ fileList }) {
+    assert.ok(fileList.length <= 50, `CloudBase temporary URL batch exceeded 50 files: ${fileList.length}`);
+    tempUrlBatchSizes.push(fileList.length);
     return {
       fileList: fileList.map((fileID) => ({
         fileID,
@@ -135,6 +151,35 @@ function event(pathname, body) {
   assert.match(wallResult.sourceImageUrl, /^https:\/\/download\.invalid\//);
   assert.equal(records.get(id).sourceImageFileId, wallUploads[0].fileId);
   assert.equal(records.get(id).pendingSourceImageFileId, undefined);
+
+  // Regression: the wall feed may resolve two files for each of 200 entries,
+  // while CloudBase accepts at most 50 files per temporary-URL request.
+  for (let index = 0; index < 30; index += 1) {
+    records.set(`list-${index}`, {
+      status: 'ready',
+      createdAt: String(index + 2).padStart(4, '0'),
+      imageFileId: `cloud://test-env/wall/list-${index}/portrait.jpg`,
+      sourceImageFileId: `cloud://test-env/wall/list-${index}/source.jpg`,
+      primaryEnergy: 'Intelligence',
+      secondaryDimension: 'Precision',
+      narrativeLine: `Wall portrait ${index}`,
+      personCount: 1,
+      poseTrace: [],
+      poseTraceVersion: 2,
+    });
+  }
+
+  tempUrlBatchSizes.length = 0;
+  const listed = await main({
+    path: '/photo-booth/entries',
+    httpMethod: 'GET',
+    headers: {},
+  });
+  assert.equal(listed.statusCode, 200);
+  const listResult = JSON.parse(listed.body);
+  assert.equal(listResult.length, 31);
+  assert.deepEqual(tempUrlBatchSizes, [50, 12]);
+  assert.ok(listResult.every((entry) => entry.imageUrl && entry.sourceImageUrl));
 
   console.log('CloudBase direct-upload contract tests passed.');
 })().catch((error) => {

@@ -9,7 +9,7 @@
 .finale-seq {
   position: absolute;
   inset: 0;
-  overflow: visible;
+  overflow: hidden;
   opacity: 0;
   pointer-events: none;
   transition: opacity 380ms ease;
@@ -36,9 +36,14 @@
   height: 100%;
   object-fit: fill;
   object-position: center;
-  opacity: var(--tagline-opacity, 0);
-  z-index: 4;
-  will-change: opacity;
+  opacity: var(--kv-opacity, 0);
+  z-index: 3;
+  transform-origin: 0 0;
+  transform: translate3d(
+      var(--kv-translate-x, 0),
+      var(--kv-translate-y, 0),
+    ) scale(var(--kv-scale, 1));
+  will-change: opacity, transform;
 }
 
 /* The perception sweep. One soft vertical band crossing the grid once. */
@@ -65,7 +70,9 @@
   position: absolute;
   inset: 0;
   overflow: visible;
-  z-index: 3;
+  /* Photos stay over the calibrated first frame while the two identical
+     headlines cross-fade. This prevents the KV from abruptly covering them. */
+  z-index: 5;
   transform-origin: 0 0;
   will-change: transform;
   opacity: 1;

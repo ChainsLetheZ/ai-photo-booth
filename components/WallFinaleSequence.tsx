@@ -24,7 +24,8 @@ export interface FinaleStartPosition {
 export type FinaleStartMap = Record<string, FinaleStartPosition>;
 const EMPTY_START_POSITIONS: FinaleStartMap = {};
 const assetBase = import.meta.env?.BASE_URL ?? '/';
-const GALA_KV_URL = `${assetBase}kv/gala-dinner-kv.jpg`;
+const FINALE_FIRST_FRAME_URL =
+  `${assetBase}kv/finale-video-first-frame.jpeg`;
 
 /**
  * individual presence → collective convergence → AI perception → distilled
@@ -93,12 +94,13 @@ function fallbackTaglineTargets(tagline: string): FinalePixelTarget[] {
   if (!context) return [];
   const lines = taglineLines(tagline);
   context.fillStyle = '#fff';
-  // Coordinates mirror the headline in the supplied 4724 × 1313 master KV.
-  // Everything outside these glyphs remains the untouched master artwork.
+  // The guest photos deliberately form the line in the physical centre of the
+  // LED wall. The first-frame camera is calibrated to meet it here before it
+  // pulls the title into the authored upper-right position.
   context.font = '900 128px "PingFang SC", "Microsoft YaHei", "Noto Sans SC", sans-serif';
   context.textAlign = 'center';
   context.textBaseline = 'middle';
-  lines.forEach((line) => context.fillText(line, 800, 188));
+  lines.forEach((line) => context.fillText(line, 800, 450));
   const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
   const columns = 360;
   // A portrait tile is roughly 0.91 as wide as it is tall. 360 × 185 keeps
@@ -119,59 +121,6 @@ function fallbackTaglineTargets(tagline: string): FinalePixelTarget[] {
     }
   }
   return targets;
-}
-
-/** Read the headline directly from the supplied KV, so the photo glyphs and
- * the final artwork share exactly the same position and proportions. */
-async function rasteriseKvHeadline(tagline: string): Promise<FinalePixelTarget[]> {
-  if (typeof document === 'undefined') return [];
-  const image = await new Promise<HTMLImageElement>((resolve, reject) => {
-    const node = new Image();
-    node.onload = () => resolve(node);
-    node.onerror = () => reject(new Error('Unable to read gala KV'));
-    node.src = GALA_KV_URL;
-  });
-  const canvas = document.createElement('canvas');
-  canvas.width = 1760;
-  canvas.height = 490;
-  const context = canvas.getContext('2d', { willReadFrequently: true });
-  if (!context) return fallbackTaglineTargets(tagline);
-  context.drawImage(image, 0, 0, canvas.width, canvas.height);
-  const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
-  const columns = 360;
-  const rows = 185;
-  const targets: FinalePixelTarget[] = [];
-  const cellWidth = canvas.width / columns;
-  const cellHeight = canvas.height / rows;
-
-  for (let row = 0; row < rows; row += 1) {
-    for (let column = 0; column < columns; column += 1) {
-      const x0 = Math.floor(column * cellWidth);
-      const x1 = Math.ceil((column + 1) * cellWidth);
-      const y0 = Math.floor(row * cellHeight);
-      const y1 = Math.ceil((row + 1) * cellHeight);
-      let headlinePixels = 0;
-      let samples = 0;
-      for (let y = y0; y < y1; y += 2) {
-        for (let x = x0; x < x1; x += 2) {
-          samples += 1;
-          // Only the warm white/peach Chinese headline, restricted to its
-          // known top-centre band. Stars and the blue/orange light trails are
-          // therefore never mistaken for a letter tile.
-          if (x / canvas.width < 0.27 || x / canvas.width > 0.73 || y / canvas.height < 0.12 || y / canvas.height > 0.36) continue;
-          const offset = (y * canvas.width + x) * 4;
-          const red = pixels[offset];
-          const green = pixels[offset + 1];
-          const blue = pixels[offset + 2];
-          if (red > 185 && green > 135 && blue > 105 && red >= blue) headlinePixels += 1;
-        }
-      }
-      if (headlinePixels / Math.max(1, samples) >= 0.1) {
-        targets.push({ xUnit: (column + 0.5) / columns, yUnit: (row + 0.5) / rows });
-      }
-    }
-  }
-  return targets.length > 80 ? targets : fallbackTaglineTargets(tagline);
 }
 
 export default function WallFinaleSequence({
@@ -199,9 +148,11 @@ export default function WallFinaleSequence({
   );
   useEffect(() => {
     let cancelled = false;
-    rasteriseKvHeadline(tagline).then((targets) => {
-      if (!cancelled) setPixelTargets(targets);
-    });
+    // The final video places its headline in the upper right. The guest
+    // portraits must still form it in the centre, before the virtual camera
+    // pulls back into that authored composition.
+    const targets = fallbackTaglineTargets(tagline);
+    if (!cancelled) setPixelTargets(targets);
     return () => { cancelled = true; };
   }, [tagline]);
   const particleEntries = useMemo(() => {
@@ -279,6 +230,7 @@ export default function WallFinaleSequence({
       }
       root.style.setProperty('--tagline-blur', `${frame.taglineBlurPx.toFixed(2)}px`);
       root.style.setProperty('--tagline-opacity', frame.taglineOpacity.toFixed(3));
+      root.style.setProperty('--kv-opacity', frame.kvOpacity.toFixed(3));
       root.style.setProperty('--tagline-scale', frame.taglineScale.toFixed(4));
       root.style.setProperty('--halo-opacity', frame.haloOpacity.toFixed(3));
       root.style.setProperty('--flash-opacity', frame.flashOpacity.toFixed(3));
@@ -288,6 +240,15 @@ export default function WallFinaleSequence({
       root.style.setProperty(
         '--kv-reveal-right',
         `${((1 - frame.kvRevealXUnit) * 100).toFixed(2)}%`,
+      );
+      root.style.setProperty('--kv-scale', frame.kvScale.toFixed(4));
+      root.style.setProperty(
+        '--kv-translate-x',
+        `${(frame.kvTranslateXUnit * stageWidth).toFixed(2)}px`,
+      );
+      root.style.setProperty(
+        '--kv-translate-y',
+        `${(frame.kvTranslateYUnit * stageHeight).toFixed(2)}px`,
       );
       const mosaic = mosaicRef.current;
       if (mosaic) {
@@ -329,7 +290,7 @@ export default function WallFinaleSequence({
   return (
     <div ref={rootRef} className={`finale-seq ${active ? 'is-running' : ''}`} aria-hidden="true">
       <div className="finale-seq-field" />
-      <img className="finale-seq-kv" src={GALA_KV_URL} alt="" />
+      <img className="finale-seq-kv" src={FINALE_FIRST_FRAME_URL} alt="" />
       <div className="finale-seq-pulse" />
 
       <div ref={mosaicRef} className="finale-seq-cards">
@@ -343,11 +304,14 @@ export default function WallFinaleSequence({
               {
                 left: `${(layout.targetX * 100).toFixed(4)}%`,
                 top: `${(layout.targetY * 100).toFixed(4)}%`,
+                zIndex: layout.depthTier + 1,
                 '--kv-pixel-color': layout.targetColor ?? 'transparent',
               } as React.CSSProperties
             }
           >
-            {entry?.sourceImageUrl && <img alt="" src={entry.sourceImageUrl} />}
+            {entry && (
+              <img alt="" src={entry.sourceImageUrl ?? entry.imageUrl} />
+            )}
           </div>
           );
         })}

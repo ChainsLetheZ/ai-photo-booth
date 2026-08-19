@@ -72,8 +72,16 @@ const EXTENSION_BY_MIME = {
 async function temporaryUrls(records, includeClaimToken = false) {
   const fileIds = [...new Set(records.flatMap((item) => [item.imageFileId, item.sourceImageFileId]).filter(Boolean))];
   if (!fileIds.length) return records;
-  const result = await app.getTempFileURL({ fileList: fileIds });
-  const urls = new Map(result.fileList.map((item) => [item.fileID, item.tempFileURL]));
+  // CloudBase rejects getTempFileURL requests containing more than 50 files.
+  // A wall can contain up to 200 records and two images per record, so resolve
+  // the links in bounded batches instead of failing the entire entries feed.
+  const urls = new Map();
+  for (let offset = 0; offset < fileIds.length; offset += 50) {
+    const result = await app.getTempFileURL({ fileList: fileIds.slice(offset, offset + 50) });
+    for (const item of result.fileList || []) {
+      if (item.fileID && item.tempFileURL) urls.set(item.fileID, item.tempFileURL);
+    }
+  }
   return records.map((item) => ({
     id: item._id,
     shortCode: item.shortCode,

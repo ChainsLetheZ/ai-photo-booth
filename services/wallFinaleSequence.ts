@@ -12,9 +12,10 @@
  *   edge-to-edge mosaic sampled from the real master KV headline.
  * - `pulse`: a sweep crosses the grid once. This is the perception — the room
  *   watching the system register everyone who is there.
- * - `retreat`: the KV pixels contract behind a flash.
- * - `tagline`: the high-resolution master KV resolves from a blur and holds until the
- *   operator takes it down.
+ * - `retreat`: the video first frame begins as a magnified crop whose
+ *   upper-right headline is aligned to the central photo headline, then the
+ *   camera pulls back to its authored composition.
+ * - `tagline`: the first frame holds until the video itself takes over.
  *
  * No card is ever re-cropped: `object-position` is fixed once and every
  * animated property here is a transform, opacity or blur value, never a crop.
@@ -37,10 +38,10 @@ export interface FinaleTiming {
 
 export const DEFAULT_FINALE_TIMING: FinaleTiming = {
   freezeMs: 700,
-  convergeMs: 1400,
+  convergeMs: 2400,
   pulseMs: 1200,
-  retreatMs: 1000,
-  taglineMs: 1300,
+  retreatMs: 1800,
+  taglineMs: 1500,
 };
 
 export const FINALE_PHASE_ORDER: FinalePhase[] = [
@@ -114,6 +115,12 @@ function easeInOutCubic(t: number) {
   return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
 }
 
+/** Zero velocity at both ends, so a portrait never launches or lands hard. */
+function smootherStep(t: number) {
+  const p = clamp(t, 0, 1);
+  return p * p * p * (p * (p * 6 - 15) + 10);
+}
+
 /** Deterministic per-card jitter, so a replay looks identical to a rehearsal. */
 function jitter(index: number, salt: number) {
   const value = Math.sin((index + 1) * 12.9898 + salt * 78.233) * 43758.5453;
@@ -169,6 +176,12 @@ export interface FinaleCardLayout {
    *  a restrained half-size start; visible wall tiles can provide their real
    *  on-screen scale so the cross-fade does not jump. */
   startScale: number;
+  /** Back, middle, or foreground wave. Far photos settle first; foreground
+   * portraits keep their readable size longest before joining the letters. */
+  depthTier: 0 | 1 | 2;
+  /** Per-card timing within the normalised converge phase. */
+  arrivalDelayUnit: number;
+  arrivalDurationUnit: number;
 }
 
 export interface FinalePixelTarget {
@@ -212,6 +225,9 @@ export function layoutFinaleCards(
 
     const angle = index * GOLDEN_ANGLE + jitter(index, 3) * 1.4;
     const radius = Math.sqrt((index + 0.5) / indices.length) * SCATTER_SPREAD;
+    const depthTier = Math.min(2, Math.floor(jitter(index, 8) * 3)) as 0 | 1 | 2;
+    const layerDelay = [0, 0.12, 0.24][depthTier];
+    const layerDuration = [0.74, 0.71, 0.68][depthTier];
 
     return {
       entryIndex,
@@ -224,6 +240,11 @@ export function layoutFinaleCards(
       // Entries not currently visible in the river arrive from the open field
       // as larger cards as well, then contract into their image-pixel.
       startScale: 7 + jitter(index, 5) * 3,
+      depthTier,
+      // A little variation inside each layer avoids three visibly mechanical
+      // batches while preserving a clear back-to-front progression.
+      arrivalDelayUnit: layerDelay + jitter(index, 9) * 0.02,
+      arrivalDurationUnit: layerDuration,
     };
   });
 }
@@ -277,6 +298,13 @@ export interface FinaleFrame {
   cameraYUnit: number;
   /** Portion of the high-resolution KV revealed behind the scanning beam. */
   kvRevealXUnit: number;
+  /** Opacity of the paused first frame of the closing video. */
+  kvOpacity: number;
+  /** Virtual-camera transform that returns the centred headline to its
+   * authored top-right position in the video frame. */
+  kvScale: number;
+  kvTranslateXUnit: number;
+  kvTranslateYUnit: number;
 }
 
 const PULSE_START_X = -0.18;
@@ -285,6 +313,19 @@ const PULSE_SIGMA = 0.1;
 const CAMERA_START_SCALE = 8;
 const CAMERA_FOCUS_X = 0.5;
 const CAMERA_FOCUS_Y = 0.5;
+// Measured from the supplied 4724 × 1313 first frame. The focus scale makes
+// its authored Chinese headline the same apparent width as the photo headline
+// at screen centre. Keeping this calibration explicit lets tests guard against
+// exposed frame edges or a title that jumps during the hand-off.
+export const FINALE_VIDEO_FRAME_GEOMETRY = {
+  headlineCenterXUnit: 0.8768,
+  headlineCenterYUnit: 0.1265,
+  headlineWidthUnit: 0.1626,
+  photoHeadlineCenterXUnit: 0.5,
+  photoHeadlineCenterYUnit: 0.5,
+  photoHeadlineWidthUnit: 0.735,
+  focusScale: 4.52,
+} as const;
 
 function gaussian(distance: number, sigma: number) {
   return Math.exp(-(distance * distance) / (2 * sigma * sigma));
@@ -304,23 +345,39 @@ export function finaleFrameAt(
   const convergeP = clamp((timeMs - convergeStart) / timing.convergeMs, 0, 1);
   const pulseP = clamp((timeMs - pulseStart) / timing.pulseMs, 0, 1);
   const retreatP = clamp((timeMs - retreatStart) / timing.retreatMs, 0, 1);
-  const taglineP = clamp((timeMs - taglineStart) / timing.taglineMs, 0, 1);
-
-  const convergeEase = easeOutCubic(convergeP);
-  const retreatEase = easeOutCubic(retreatP);
   const sweepX =
     timeMs < pulseStart
       ? null
       : PULSE_START_X + (PULSE_END_X - PULSE_START_X) * pulseP;
-  const taglineEase = easeOutCubic(clamp((taglineP - 0.08) / 0.72, 0, 1));
+  // First dissolve the clean first-frame title in underneath the photo title.
+  // Only after that exact-position hand-off has settled does the camera move.
+  const frameReveal = easeOutCubic(clamp(retreatP / 0.35, 0, 1));
+  const pullbackEase = easeInOutCubic(
+    clamp((retreatP - 0.42) / 0.58, 0, 1),
+  );
+  const photoDissolve = easeInOutCubic(
+    clamp((retreatP - 0.04) / 0.38, 0, 1),
+  );
 
   const cardFrames: FinaleCardFrame[] = cards.map((card) => {
-    // Photos travel from their live-wall positions into unique, edge-to-edge
-    // headline cells while shrinking continuously into the fine mosaic.
-    const x = card.startX + (card.targetX - card.startX) * convergeEase;
-    const y = card.startY + (card.targetY - card.startY) * convergeEase;
+    // The three depth layers enter back-to-front. Position starts first and
+    // scale follows later, so a portrait drifts away from the wall before it
+    // becomes a tiny letter pixel instead of instantly shooting inward.
+    const localP = clamp(
+      (convergeP - card.arrivalDelayUnit) / card.arrivalDurationUnit,
+      0,
+      1,
+    );
+    const positionEase = smootherStep(localP);
+    const scaleDelay = 0.12 + card.depthTier * 0.04;
+    const scaleEase = smootherStep(
+      clamp((localP - scaleDelay) / (1 - scaleDelay), 0, 1),
+    );
+    const x = card.startX + (card.targetX - card.startX) * positionEase;
+    const y = card.startY + (card.targetY - card.startY) * positionEase;
     const rotation = 0;
-    const convergeOpacity = convergeP <= 0 ? 0 : easeOutCubic(clamp(convergeP * 1.4, 0, 1));
+    const convergeOpacity =
+      localP <= 0 ? 0 : easeOutCubic(clamp(localP / 0.18, 0, 1));
     // Do not reveal the pixel artwork while photos are still visibly large.
     // The dissolve begins only in the final 18% of the camera pullback, when a
     // portrait and one 64×36 KV pixel occupy effectively the same screen size.
@@ -332,24 +389,13 @@ export function finaleFrameAt(
       sweepX === null || timeMs >= retreatStart
         ? 0
         : gaussian(card.targetX - sweepX, PULSE_SIGMA);
-    const pulseScale = 1 + glow * 0.035;
-
-    // The sampled KV pixels contract and disappear behind the flash; the final
-    // held frame is the clean high-resolution master KV.
-    const retreatX = card.targetX;
-    const retreatY = card.targetY;
-    const retreatScale = 1 - retreatEase * 0.78;
-    const retreatOpacity =
-      1 - easeInOutCubic(clamp((retreatP - 0.42) / 0.58, 0, 1));
-    const retreatBlur = retreatEase * 3;
-
     return {
       entryIndex: card.entryIndex,
       xUnit: x,
       yUnit: y,
-      scale: card.startScale + (1 - card.startScale) * convergeEase,
+      scale: card.startScale + (1 - card.startScale) * scaleEase,
       rotationDeg: rotation,
-      opacity: convergeOpacity * (1 - taglineEase),
+      opacity: convergeOpacity * (1 - photoDissolve),
       blurPx: 0,
       glow: 0,
       pixelMix,
@@ -371,6 +417,17 @@ export function finaleFrameAt(
   // The shrink now belongs to each real photo. Keeping the shared stage at
   // scale 1 avoids multiplying that shrink and producing giant, clipped cards.
   const cameraScale = 1;
+  const kvScale =
+    FINALE_VIDEO_FRAME_GEOMETRY.focusScale +
+    (1 - FINALE_VIDEO_FRAME_GEOMETRY.focusScale) * pullbackEase;
+  const focusTranslateX =
+    FINALE_VIDEO_FRAME_GEOMETRY.photoHeadlineCenterXUnit -
+    FINALE_VIDEO_FRAME_GEOMETRY.headlineCenterXUnit *
+      FINALE_VIDEO_FRAME_GEOMETRY.focusScale;
+  const focusTranslateY =
+    FINALE_VIDEO_FRAME_GEOMETRY.photoHeadlineCenterYUnit -
+    FINALE_VIDEO_FRAME_GEOMETRY.headlineCenterYUnit *
+      FINALE_VIDEO_FRAME_GEOMETRY.focusScale;
   return {
     cards: cardFrames,
     fieldOpacity,
@@ -382,12 +439,16 @@ export function finaleFrameAt(
     // beam is only an accent; it no longer acts as a hard reveal boundary.
     // Hold the completed pixel KV briefly so it reads as an intentional frame,
     // then dissolve gently to the master rather than changing immediately.
-    taglineOpacity: taglineEase,
+    taglineOpacity: frameReveal,
     taglineScale: 1,
     haloOpacity: 0,
     cameraScale,
     cameraXUnit: 0,
     cameraYUnit: 0,
     kvRevealXUnit: 1,
+    kvOpacity: frameReveal,
+    kvScale,
+    kvTranslateXUnit: focusTranslateX * (1 - pullbackEase),
+    kvTranslateYUnit: focusTranslateY * (1 - pullbackEase),
   };
 }

@@ -378,6 +378,11 @@ export default function WallPage() {
   }, [finale]);
 
   const riverActive = !assembled && formation === 'scroll' && records.length > 0;
+  // During the actual gathering, keep the live river moving behind the cards.
+  // The finale cards therefore peel directly from the wall rather than
+  // appearing after a blackout. The river fades only once the word is formed.
+  const riverVisibleDuringFinale =
+    finale === 'freeze' || finale === 'converge';
   const toggleFinale = useCallback(() => {
     if (finale) {
       setFinale(null);
@@ -420,8 +425,8 @@ export default function WallPage() {
       >
         <WallPhotoRiver
           entries={records}
-          active={riverActive || finale === 'freeze'}
-          freeze={assembled}
+          active={riverActive || riverVisibleDuringFinale}
+          freeze={false}
         />
 
         {activeJoin && (

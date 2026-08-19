@@ -414,8 +414,11 @@ export function finaleFrameAt(
   );
   const heatFall = clamp((timeMs - retreatStart) / (timing.retreatMs + timing.taglineMs), 0, 1);
   const fieldHeat = clamp(0.4 + heatRise * 0.45 - heatFall * 0.3, 0.1, 0.85);
+  // Keep the moving wall visible while real photos peel away from it. The
+  // dark finale field arrives only after the letterform has settled, at the
+  // same time the live river is allowed to fade behind it.
   const fieldOpacity = easeOutCubic(
-    clamp((timeMs - convergeStart) / (timing.convergeMs * 0.32), 0, 1),
+    clamp((timeMs - pulseStart) / (timing.pulseMs * 0.65), 0, 1),
   );
 
   // The shrink now belongs to each real photo. Keeping the shared stage at

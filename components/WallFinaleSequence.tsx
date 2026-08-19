@@ -33,6 +33,9 @@ const FINALE_FIRST_FRAME_URL =
 // canvas on exactly that ratio; the former 16:9 canvas was being squeezed into
 // this stage and made the Chinese headline read vertically compressed.
 const MASTER_KV_RATIO = 4724 / 1313;
+// Fine enough to read as photography in the finished word, but bounded so
+// thousands of large cards never blanket the screen while they are travelling.
+const MAX_RENDERED_LETTER_CARDS = 1600;
 
 /**
  * individual presence → collective convergence → AI perception → distilled
@@ -161,9 +164,15 @@ export default function WallFinaleSequence({
     if (!cancelled) setPixelTargets(targets);
     return () => { cancelled = true; };
   }, [tagline]);
+  const renderedTargets = useMemo(() => {
+    if (pixelTargets.length <= MAX_RENDERED_LETTER_CARDS) return pixelTargets;
+    return Array.from({ length: MAX_RENDERED_LETTER_CARDS }, (_, index) =>
+      pixelTargets[Math.floor((index / MAX_RENDERED_LETTER_CARDS) * pixelTargets.length)],
+    );
+  }, [pixelTargets]);
   const particleEntries = useMemo(() => {
     if (ordered.length === 0) return [];
-    const count = pixelTargets.length;
+    const count = renderedTargets.length;
     const slots = Array<WallEntry | undefined>(count).fill(undefined);
     const pixelColumns = Math.max(1, Math.round(Math.sqrt(count * (16 / 9))));
     const recent = ordered.slice(-Math.min(ordered.length, FINALE_CARD_COUNT));
@@ -180,11 +189,11 @@ export default function WallFinaleSequence({
       }
     }
     return slots;
-  }, [ordered, pixelTargets.length]);
+  }, [ordered, renderedTargets.length]);
   const cards = useMemo(() => {
     const occurrenceByEntry = new Map<string, number>();
     const indices = particleEntries.map((_, index) => index);
-    return layoutFinaleCards(indices, pixelTargets).map((card) => {
+    return layoutFinaleCards(indices, renderedTargets).map((card) => {
       const entry = particleEntries[card.entryIndex];
       const occurrence = entry
         ? (occurrenceByEntry.get(entry.id) ?? 0)
@@ -201,7 +210,7 @@ export default function WallFinaleSequence({
           }
         : card;
     });
-  }, [particleEntries, pixelTargets, startPositions]);
+  }, [particleEntries, renderedTargets, startPositions]);
   const field = useMemo(() => fieldGradient(entries), [entries]);
   const accent = useMemo(() => dominantAccent(entries), [entries]);
 

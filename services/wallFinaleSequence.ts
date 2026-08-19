@@ -229,8 +229,10 @@ export function layoutFinaleCards(
     const depthTier = Math.min(2, Math.floor(jitter(index, 8) * 3)) as 0 | 1 | 2;
     // Three visibly separate depth waves. A small inner offset avoids a
     // mechanical row launch while keeping the waves legible across the room.
-    const layerDelay = [0.02, 0.28, 0.56][depthTier];
-    const layerDuration = [0.4, 0.34, 0.27][depthTier];
+    // Each visible launch is brief. Settled cards are already tiny text
+    // pixels before the next depth wave becomes dense enough to cover them.
+    const layerDelay = [0.02, 0.34, 0.68][depthTier];
+    const layerDuration = [0.22, 0.2, 0.18][depthTier];
 
     return {
       entryIndex,
@@ -246,7 +248,7 @@ export function layoutFinaleCards(
       depthTier,
       // A little variation inside each layer avoids three visibly mechanical
       // batches while preserving a clear back-to-front progression.
-      arrivalDelayUnit: layerDelay + jitter(index, 9) * 0.16,
+      arrivalDelayUnit: layerDelay + jitter(index, 9) * 0.1,
       arrivalDurationUnit: layerDuration,
     };
   });

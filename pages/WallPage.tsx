@@ -81,9 +81,14 @@ function captureFinaleStarts(
       const y = rect.top + rect.height / 2;
       const list = starts.get(id) ?? [];
       list.push({
-        xUnit: Math.min(1, Math.max(0, (x - stageRect.left) / stageRect.width)),
-        yUnit: Math.min(1, Math.max(0, (y - stageRect.top) / stageRect.height)),
-        scale: Math.min(28, Math.max(1, rect.width / finalCardWidth)),
+        // Keep the actual centre, including the part that is just beyond an
+        // edge of the LED. It gives the finale a mix of on-wall launches and
+        // edge arrivals instead of forcing every photo to begin in-frame.
+        xUnit: (x - stageRect.left) / stageRect.width,
+        yUnit: (y - stageRect.top) / stageRect.height,
+        // A flight card is intentionally smaller than its wall tile. Large
+        // cards are readable at launch but no longer blanket the display.
+        scale: Math.min(6.5, Math.max(1, rect.width / finalCardWidth)),
       });
       starts.set(id, list);
     });

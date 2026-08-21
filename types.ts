@@ -28,6 +28,7 @@ export interface PortraitRecord {
   mode: GroupMode;
   narrative: string;
   color: string;
+  paperKeyword?: string;
   personCount?: number;
   poseTrace?: PoseTrace[];
   shortCode?: string;

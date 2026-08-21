@@ -1176,10 +1176,11 @@ button:focus-visible, a:focus-visible { outline: 3px solid #00a8e0; outline-offs
   height: 170%;
   will-change: transform;
 }
-/* The photo field itself moves, not the camera. An alternate path avoids a
-   visible loop/reset at the edge of the screen. */
+/* The photo field itself moves, not the camera. It always travels upper-left
+   through the stationary viewport. */
 .wall-river-pan.is-panning {
-  animation: wall-river-field-flow var(--river-pan) linear infinite alternate;
+  /* Always travel upper-left; alternating sent the field back down-right. */
+  animation: wall-river-field-flow var(--river-pan) linear infinite;
 }
 .wall-river-panel {
   position: absolute;
@@ -1700,6 +1701,54 @@ button:focus-visible, a:focus-visible { outline: 3px solid #00a8e0; outline-offs
   inset: 0;
   opacity: 1;
   filter: saturate(.82) contrast(1.06) brightness(.82);
+}
+
+/* Keep the visual cue close to the physical lens above the centre of the
+   booth, so guests look at the camera rather than the dialogue card. */
+.camera-look-hint {
+  position: absolute;
+  z-index: 16;
+  top: clamp(22px, 6.5%, 64px);
+  left: 50%;
+  display: grid;
+  min-width: 154px;
+  justify-items: center;
+  gap: 3px;
+  padding: 8px 16px 9px;
+  border: 1px solid rgba(255,255,255,.48);
+  border-radius: 999px;
+  color: #fff;
+  background: rgba(7,20,27,.66);
+  box-shadow: 0 8px 24px rgba(0,0,0,.25), 0 0 0 4px rgba(0,168,224,.08);
+  transform: translateX(-50%);
+  pointer-events: none;
+  animation: camera-look-pulse 2.2s ease-in-out infinite;
+}
+.camera-look-hint strong {
+  font-size: clamp(13px, 1.15vw, 18px);
+  line-height: 1.1;
+  letter-spacing: .08em;
+}
+.camera-look-hint small {
+  color: rgba(255,255,255,.72);
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: .16em;
+}
+.camera-look-dot {
+  position: absolute;
+  top: 50%;
+  left: 10px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #e20015;
+  box-shadow: 0 0 12px rgba(226,0,21,.9);
+  transform: translateY(-50%);
+}
+@keyframes camera-look-pulse {
+  0%, 100% { box-shadow: 0 8px 24px rgba(0,0,0,.25), 0 0 0 4px rgba(0,168,224,.08); }
+  50% { box-shadow: 0 8px 24px rgba(0,0,0,.25), 0 0 0 8px rgba(0,168,224,.16); }
 }
 
 .perception-halo-layer {
@@ -2416,7 +2465,7 @@ button:focus-visible, a:focus-visible { outline: 3px solid #00a8e0; outline-offs
 }
 
 .blink-left {
-  z-index: 5;
+  z-index: 6;
   left: .5%;
   bottom: 0;
   width: 40%;
@@ -2425,98 +2474,98 @@ button:focus-visible, a:focus-visible { outline: 3px solid #00a8e0; outline-offs
 .blink-video-left { object-position: center bottom; }
 
 .blink-right {
-  /* The supplied right-side clips already reserve transparent lead-in on the
-     left. Offset the full video beyond the edge so the robot itself, rather
-     than the video canvas, lands flush with the display boundary. */
-  right: -6%;
+  left: -8%;
   bottom: 0;
-  width: 43%;
-  height: 62%;
+  width: 47%;
+  height: 60%;
   opacity: 0;
-  transform: translateX(42%);
+  transform: translateY(12%) scaleX(-1);
   transition: opacity .28s ease, transform .38s ease;
 }
 
 .blink-right.is-visible {
   opacity: 1;
-  transform: translateX(0);
+  transform: translateY(0) scaleX(-1);
 }
 
-/* The gesture tutorial is landscape footage with the character on the right. */
+/* Mirror the original right-side clip and anchor it on the lower-left. */
 .blink-video-right { object-position: right bottom; }
 
 .blink-dialogue {
   position: absolute;
   z-index: 12;
-  top: 3.5%;
-  right: 2.5%;
-  width: max-content;
-  max-width: 68%;
+  top: 42%;
+  left: 36%;
+  right: auto;
+  display: block;
+  gap: 12px;
+  width: 16%;
+  max-width: 16%;
+  box-sizing: border-box;
   min-height: 0;
-  padding: 13px 16px;
+  padding: 12px 14px;
   border: 1px solid rgba(255,255,255,.72);
-  border-radius: 8px;
+  border-radius: 14px;
   background: rgba(255,255,255,.94);
   box-shadow: 0 12px 34px rgba(0,0,0,.3);
   color: #101820;
   animation: blinkDialogueIn .24s ease-out both;
 }
 
-.blink-dialogue::after {
-  display: none;
+.blink-dialogue.has-two-speakers .dialogue-panel + .dialogue-panel {
+  padding-top: 10px;
+  border-top: 1px solid rgba(16,24,32,.12);
+  padding-left: 0;
+  border-left: 0;
 }
 
-.blink-dialogue.speaker-left,
-.blink-dialogue.speaker-right {
-  top: auto;
+.dialogue-panel {
+  position: relative;
+  display: grid;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
 }
 
-.blink-dialogue.speaker-left {
-  right: auto;
-  left: 9%;
-  top: auto;
-  bottom: 50%;
-  max-width: 37%;
-}
-
-.blink-dialogue.speaker-right {
-  right: .5%;
-  bottom: 40%;
-  left: auto;
-  max-width: 48%;
-}
-
-.blink-dialogue.speaker-left::after,
-.blink-dialogue.speaker-right::after {
+.dialogue-tail {
   position: absolute;
   bottom: -12px;
-  display: block;
   width: 22px;
   height: 22px;
   border-right: 1px solid rgba(255,255,255,.72);
   border-bottom: 1px solid rgba(255,255,255,.72);
   background: rgba(255,255,255,.94);
-  content: '';
   transform: rotate(45deg);
 }
 
-.blink-dialogue.speaker-left::after {
-  right: 8%;
-  left: auto;
+.dialogue-tail.tail-left {
+  left: 10%;
 }
-.blink-dialogue.speaker-right::after { right: 14%; }
 
-.blink-dialogue.state-result {
-  right: auto;
-  left: 3%;
-  bottom: 45%;
+.dialogue-tail.tail-right {
+  left: auto;
+  right: 10%;
 }
 
 .blink-dialogue p {
   margin: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.blink-dialogue p strong {
   font-size: clamp(16px, 1.25vw, 21px);
   font-weight: 700;
   line-height: 1.35;
+  letter-spacing: 0;
+  text-wrap: balance;
+}
+
+.blink-dialogue p span {
+  font-size: clamp(11px, .92vw, 15px);
+  font-weight: 500;
+  line-height: 1.32;
+  color: rgba(16,24,32,.76);
   letter-spacing: 0;
   text-wrap: balance;
 }
@@ -2546,8 +2595,17 @@ button:focus-visible, a:focus-visible { outline: 3px solid #00a8e0; outline-offs
 }
 
 .gesture-task strong {
+  display: block;
   font-size: 14px;
   letter-spacing: 0;
+}
+
+.gesture-task small {
+  display: block;
+  margin-top: 2px;
+  color: rgba(16,24,32,.68);
+  font-size: 11px;
+  line-height: 1.25;
 }
 
 .gesture-task.is-success span { background: #00884a; }
@@ -2674,28 +2732,31 @@ button:focus-visible, a:focus-visible { outline: 3px solid #00a8e0; outline-offs
 }
 
 @media (max-width: 900px) {
-  .blink-dialogue { top: 3%; width: max-content; max-width: 72%; }
+  .blink-dialogue {
+    top: 39%;
+    left: 34%;
+    width: 20%;
+    max-width: 20%;
+    gap: 10px;
+    padding: 11px 12px;
+  }
   .blink-slot { bottom: 4%; height: 34%; }
-  .blink-left { width: 42%; height: 58%; }
-  .blink-right { width: 45%; height: 56%; }
+  .blink-left { left: 1%; width: 42%; height: 58%; }
+  .blink-right { left: -7%; width: 50%; height: 60%; }
   .photo-paper { top: 59%; }
 }
 
 @media (max-width: 560px) {
   .blink-dialogue {
-    top: 2.5%;
-    right: 3%;
-    width: max-content;
-    max-width: 82%;
+    top: 35%;
+    left: 28%;
+    width: 26%;
+    max-width: 26%;
+    gap: 8px;
     padding: 11px 13px;
   }
-  .blink-dialogue p { font-size: 16px; }
-  .blink-dialogue.speaker-left,
-  .blink-dialogue.speaker-right { max-width: 68%; }
-  .blink-dialogue.speaker-left { left: 7%; bottom: 51%; }
-  .blink-dialogue.speaker-right { right: .5%; bottom: 39%; }
-  .blink-left { width: 46%; height: 54%; min-width: 0; }
-  .blink-right { right: -8%; width: 48%; height: 52%; min-width: 0; }
+  .blink-left { left: 1%; width: 46%; height: 54%; min-width: 0; }
+  .blink-right { left: -6%; width: 52%; height: 55%; min-width: 0; }
   .blink-viewfinder { left: 18%; width: 64%; }
   .gesture-task { min-height: 38px; }
   .gesture-task span { width: 32px; height: 32px; flex-basis: 32px; font-size: 18px; }
@@ -2709,7 +2770,8 @@ button:focus-visible, a:focus-visible { outline: 3px solid #00a8e0; outline-offs
 }
 .photo-claim-card {
   position: absolute;
-  right: clamp(28px, 4vw, 72px);
+  left: clamp(28px, 4vw, 72px);
+  right: auto;
   bottom: clamp(30px, 5vh, 72px);
   z-index: 40;
   display: flex;
@@ -2739,7 +2801,8 @@ button:focus-visible, a:focus-visible { outline: 3px solid #00a8e0; outline-offs
 }
 
 .photo-claim-card img { width: 144px; height: 144px; border-radius: 8px; }
-.photo-claim-card div { display: grid; gap: 8px; }
+.photo-claim-card > div { display: grid; gap: 8px; }
+.photo-claim-card .photo-claim-copy { min-width: 250px; }
 .photo-claim-card strong { font-size: 28px; }
 .photo-claim-card span { font-size: 18px; color: #555; }
 .photo-claim-card small { color: #666; font-size: 14px; }
@@ -2783,17 +2846,40 @@ button:focus-visible, a:focus-visible { outline: 3px solid #00a8e0; outline-offs
 
 .photo-download-page {
   min-height: 100dvh;
-  padding: 24px;
+  padding: 0 1.5rem 2rem;
   color: #161616;
-  background: linear-gradient(145deg, #edf6fb 0%, #fff 48%, #f4eefb 100%);
-  font-family: Arial, Helvetica, sans-serif;
+  background: #f4f6f7;
+  font-family: "Bosch Sans", Arial, sans-serif;
 }
 
-.photo-download-card { width: min(100%, 620px); margin: 0 auto; text-align: center; }
-.photo-download-brand { margin-bottom: 34px; color: #e20015; font-size: 28px; font-weight: 800; letter-spacing: 0.08em; }
-.photo-download-kicker { margin: 0 0 8px; color: #555; font-size: 13px; letter-spacing: 0.12em; }
-.photo-download-card h1 { margin: 0 0 22px; font-size: clamp(28px, 8vw, 44px); line-height: 1.1; }
+.photo-download-supergraphic {
+  display: block;
+  width: calc(100% + 3rem);
+  height: .375rem;
+  margin: 0 -1.5rem 2rem;
+}
+.photo-download-card { width: min(100%, 38.75rem); margin: 0 auto; text-align: center; }
+.photo-download-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 2.5rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid #d0d4d6;
+}
+.photo-download-logo { display: block; width: 8.75rem; height: auto; }
+.photo-download-header-label { color: #525b60; font-size: .75rem; font-weight: 700; letter-spacing: .08em; }
+.photo-download-kicker { margin: 0 0 .5rem; color: #525b60; font-size: .8125rem; letter-spacing: .12em; }
+.photo-download-card h1 { margin: 0 0 1.5rem; font-size: clamp(1.75rem, 8vw, 2.75rem); line-height: 1.1; }
 .photo-download-image { display: block; width: 100%; max-height: 68dvh; object-fit: contain; background: #fff; box-shadow: 0 18px 55px rgba(0, 0, 0, 0.16); }
-.photo-download-button { display: block; margin-top: 22px; padding: 17px 24px; color: #fff; background: #007bc0; border-radius: 4px; font-size: 18px; font-weight: 700; text-decoration: none; }
+.photo-download-button { display: block; min-height: 2.75rem; box-sizing: border-box; margin-top: 1.5rem; padding: .875rem 1.5rem; color: #fff; background: #007bc0; border-radius: 0; font-size: 1rem; font-weight: 700; line-height: 1.5; text-decoration: none; }
+.photo-download-button:hover { background: #005a8d; }
+.photo-download-button:focus-visible { outline: .1875rem solid #00a8e0; outline-offset: .1875rem; }
 .photo-download-hint, .photo-download-status, .photo-download-empty p { color: #666; line-height: 1.6; }
 .photo-download-empty { padding-top: 18vh; }
+
+@media (max-width: 35rem) {
+  .photo-download-header { align-items: flex-start; flex-direction: column; gap: .75rem; }
+  .photo-download-header-label { align-self: flex-end; }
+}

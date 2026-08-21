@@ -10,14 +10,24 @@ import { getCoverSourceRect } from '../utils/viewportTransform';
 /** The supplied Bosch Supplier Day Gala paper, kept as a public print asset. */
 const PAPER_TEMPLATE_URL = '/templates/bosch-supplier-day-gala-paper.png';
 
-// Coordinates are in the designer-supplied 1377 × 1835 artwork. This is the
-// white inner frame: the two robots and illuminated border deliberately sit on
-// top of the guest photo.
-const PAPER_SIZE = { width: 1377, height: 1835 };
-const PHOTO_WINDOW = { x: 151, y: 196, width: 1085, height: 1188, radius: 38 };
+// Coordinates are measured from the newly supplied 3596 × 4798 artwork. The
+// bright gold-blue frame and the lower-right robot should remain on top of the
+// guest photo, so only the central opening is filled here.
+const PAPER_SIZE = { width: 3596, height: 4798 };
+const PHOTO_WINDOW = { x: 393, y: 504, width: 2813, height: 3094, radius: 102 };
+const PAPER_KEYWORDS = [
+  'ACCELERATE',
+  'CONNECT',
+  'COLLABORATE',
+  'MOMENTUM',
+  'PRECISION',
+  'EXPLORE',
+  'INNOVATE',
+  'TOGETHER',
+] as const;
 // QR downloads use the full supplied paper artwork, preserving the print-ready
-// 1377 × 1835 composition. The separate wall source remains compact because it
-// never needs to be downloaded or printed.
+// composition. The separate wall source remains compact because it never needs
+// to be downloaded or printed.
 const PORTRAIT_EXPORT = { width: PAPER_SIZE.width, height: PAPER_SIZE.height, quality: 0.84 };
 const WALL_EXPORT = { width: 480, height: 525, quality: 0.58 };
 
@@ -90,33 +100,40 @@ function clipRoundedRect(
   context.clip();
 }
 
-/**
- * The artwork was supplied with a white placeholder rather than a transparent
- * cut-out. Clear only its near-white pixels inside the photo window so its
- * coloured border and both robot illustrations remain above the captured photo.
- */
-function createPaperOverlay(template: HTMLImageElement) {
-  const overlay = document.createElement('canvas');
-  overlay.width = PAPER_SIZE.width;
-  overlay.height = PAPER_SIZE.height;
-  const context = overlay.getContext('2d');
-  if (!context) throw new Error('Canvas is unavailable');
-
-  context.drawImage(template, 0, 0, overlay.width, overlay.height);
-  const pixels = context.getImageData(
-    PHOTO_WINDOW.x,
-    PHOTO_WINDOW.y,
-    PHOTO_WINDOW.width,
-    PHOTO_WINDOW.height,
-  );
-  for (let offset = 0; offset < pixels.data.length; offset += 4) {
-    const red = pixels.data[offset];
-    const green = pixels.data[offset + 1];
-    const blue = pixels.data[offset + 2];
-    if (red >= 245 && green >= 245 && blue >= 245) pixels.data[offset + 3] = 0;
+function pickPaperKeyword(id: string) {
+  let hash = 0;
+  for (let index = 0; index < id.length; index += 1) {
+    hash = (hash * 31 + id.charCodeAt(index)) >>> 0;
   }
-  context.putImageData(pixels, PHOTO_WINDOW.x, PHOTO_WINDOW.y);
-  return overlay;
+  return PAPER_KEYWORDS[hash % PAPER_KEYWORDS.length];
+}
+
+function drawPaperKeyword(context: CanvasRenderingContext2D, keyword: string) {
+  context.save();
+  context.textAlign = 'left';
+  context.textBaseline = 'alphabetic';
+  context.shadowColor = 'rgba(0, 0, 0, 0.38)';
+  context.shadowBlur = 24;
+  context.shadowOffsetY = 10;
+
+  const x = 180;
+  const baselineY = 4040;
+  const gradient = context.createLinearGradient(x, baselineY - 180, x + 1250, baselineY + 40);
+  gradient.addColorStop(0, '#F6C66A');
+  gradient.addColorStop(0.5, '#FFF4D5');
+  gradient.addColorStop(1, '#8CC8FF');
+
+  context.fillStyle = gradient;
+  context.font = '700 156px "Arial Narrow", "Helvetica Neue", Arial, sans-serif';
+  context.letterSpacing = '6px';
+  context.fillText(keyword, x, baselineY);
+
+  context.shadowColor = 'transparent';
+  context.fillStyle = 'rgba(255, 255, 255, 0.78)';
+  context.font = '500 38px "Helvetica Neue", Arial, sans-serif';
+  context.letterSpacing = '3px';
+  context.fillText('BOSCH CHINA SUPPLIER DAY 2026', x + 6, baselineY + 72);
+  context.restore();
 }
 
 export async function renderFuturePortrait(
@@ -171,8 +188,11 @@ export async function renderFuturePortrait(
   context.drawImage(cleanPhoto, PHOTO_WINDOW.x, PHOTO_WINDOW.y);
   context.restore();
 
-  // Then restore every non-placeholder part of the supplied paper over it.
-  context.drawImage(createPaperOverlay(paperTemplate), 0, 0);
+  // The new supplied paper already contains a transparent cut-out, so drawing
+  // it last keeps the neon border and robot art above the photo automatically.
+  context.drawImage(paperTemplate, 0, 0, PAPER_SIZE.width, PAPER_SIZE.height);
+  const paperKeyword = pickPaperKeyword(id);
+  drawPaperKeyword(context, paperKeyword);
 
   return {
     id,
@@ -196,6 +216,7 @@ export async function renderFuturePortrait(
     narrative: narrativeCopy,
     color: '#0069B4',
     personCount: reading.peopleCount,
+    paperKeyword,
     poseTrace,
   };
 }

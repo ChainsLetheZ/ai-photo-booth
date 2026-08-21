@@ -6,6 +6,7 @@ import {
 } from '../config/tencentCloud';
 
 export default function PhotoDownloadPage() {
+  const assetBase = import.meta.env.BASE_URL ?? '/';
   const claimToken =
     new URLSearchParams(window.location.search).get('photo') ||
     window.location.pathname.split('/').filter(Boolean).at(-1) ||
@@ -38,8 +39,21 @@ export default function PhotoDownloadPage() {
 
   return (
     <main className="photo-download-page">
+      <img
+        className="photo-download-supergraphic"
+        src={`${assetBase}brand/supergraphic-responsive.svg`}
+        alt=""
+        aria-hidden="true"
+      />
       <section className="photo-download-card">
-        <div className="photo-download-brand">BOSCH</div>
+        <header className="photo-download-header">
+          <img
+            className="photo-download-logo"
+            src={`${assetBase}brand/bosch-logo.svg`}
+            alt="Bosch"
+          />
+          <span className="photo-download-header-label">SUPPLIER DAY 2026</span>
+        </header>
         {status === 'loading' && <p className="photo-download-status">照片加载中…</p>}
         {status === 'missing' && (
           <div className="photo-download-empty">

@@ -39,11 +39,22 @@ import type { BehaviorReading, PortraitRecord, PoseTrace } from '../types';
 
 interface GestureTask {
   icon: string;
-  name: string;
-  lines: [string, string];
+  nameZh: string;
+  nameEn: string;
+  lines: DialogueLine[];
 }
 
 type UploadStage = 'generating' | 'reserving' | 'uploading' | 'qr';
+type DialogueLine = { zh: string; en: string };
+type DialoguePanel = {
+  side: 'left' | 'right';
+  lines: DialogueLine[];
+  task?: {
+    success: boolean;
+    labelZh: string;
+    labelEn: string;
+  };
+};
 
 const UPLOAD_STAGE_COPY: Record<UploadStage, string> = {
   generating: '正在生成你的未来照片…',
@@ -60,9 +71,17 @@ function formatRemainingTime(totalSeconds: number) {
 
 const GESTURE_TASK: GestureTask = {
   icon: '✋',
-  name: '任选一个手势',
-  lines: ['轮到你啦！挥挥手、举手，', '或者比个耶、点个赞都可以。'],
+  nameZh: '任选一个手势',
+  nameEn: 'Pick any gesture',
+  lines: [
+    { zh: '轮到你啦！挥挥手、举手，', en: 'Your turn. Give me a wave or raise your hand,' },
+    { zh: '或者比个耶、点个赞都可以。', en: 'or throw a peace sign or a thumbs-up.' },
+  ],
 };
+
+function say(...pairs: Array<[string, string]>): DialogueLine[] {
+  return pairs.map(([zh, en]) => ({ zh, en }));
+}
 
 const assetBase = import.meta.env?.BASE_URL ?? '/';
 // Video filenames are deliberately versioned in the URL. Venue browsers and
@@ -408,20 +427,24 @@ export default function BoothPage() {
   // The photographer stays on the left at every stage. The side-entry clip is
   // deliberately a right-side-only cue: putting it on the left made the
   // photographer disappear after its one-shot video ended.
-  const showRightBlink = state === 'PERCEIVING' || state === 'LOCKED';
+  const showRightBlink =
+    state === 'PERCEIVING' || state === 'LOCKED' || state === 'RESULT';
   // The source clip is four seconds long. Do not replace it after the short
   // text-intro timer (800 ms), otherwise the side-entry animation is visible
   // for only a blink and looks like the old footage is still in use. When the
   // gesture is confirmed, the companion plays the same entry movement
   // backwards and naturally retreats to the right before the countdown.
-  const rightVideoSrc = state === 'LOCKED'
+  const rightVideoSrc = state === 'RESULT'
     ? BOOTH_VIDEO.exit
-    : !showRightBlink
-      ? null
-      : phaseHeldMs < ARRIVAL_VIDEO_MS
-        ? BOOTH_VIDEO.arrival
-        : BOOTH_VIDEO.gesture;
+    : state === 'LOCKED'
+      ? BOOTH_VIDEO.exit
+      : !showRightBlink
+        ? null
+        : phaseHeldMs < ARRIVAL_VIDEO_MS
+          ? BOOTH_VIDEO.arrival
+          : BOOTH_VIDEO.gesture;
   const rightVideoLoops = rightVideoSrc === BOOTH_VIDEO.gesture;
+  const rightVideoFreezeAt = state === 'RESULT' ? 'start' : undefined;
   const captureSequenceActive =
     state === 'COUNTDOWN' ||
     state === 'CAPTURE' ||
@@ -433,6 +456,7 @@ export default function BoothPage() {
     ? BOOTH_VIDEO.captureHold
     : BOOTH_VIDEO.idle;
   const leftVideoLoops = leftVideoSrc === BOOTH_VIDEO.idle;
+  const leftVideoHoldAtEnd = leftVideoSrc === BOOTH_VIDEO.captureHold;
   const qrHoldMs = simpleMode.enabled ? simpleMode.resultHoldMs : 90_000;
   const qrSecondsRemaining = Math.max(
     0,
@@ -441,48 +465,65 @@ export default function BoothPage() {
   const photoImage = portrait?.imageData ?? null;
 
   let speaker: 'left' | 'right' | null = null;
-  let dialogueLines: [string, string?] | null = null;
+  let dialogueLines: DialogueLine[] | null = null;
   if (state === 'IDLE') {
     speaker = 'left';
-    dialogueLines = ['嗨，来这边！', '站进取景框，我给你拍一张。'];
+    dialogueLines = say(
+      ['嗨，来这边！', 'Hi, come over here.'],
+      ['站进取景框，我给你拍一张。', 'Step into the frame and I will take your photo.'],
+    );
   } else if (state === 'PERCEIVING') {
     if (introActive) {
       speaker = 'left';
-      dialogueLines = ['看到你啦！', '再往中间一点点，就很完美。'];
+      dialogueLines = say(
+        ['我看到你啦，保持在画面里！', 'I can see you, stay inside the frame.'],
+      );
     } else if (guidanceActive) {
       speaker = 'left';
       dialogueLines = tooManyPeople
-        ? ['人数有点多，', '我们分两组拍吧！']
+        ? say(
+            ['人数有点多，', 'There are a few too many people.'],
+            ['我们分两组拍吧！', 'Let us split into two groups for the photo.'],
+          )
         : capturePeopleCount > 0
-          ? ['大家再靠近一点点，', '对，就站在一起！']
-          : ['再往前走一点，', '让我看清你！'];
+          ? say(
+              ['大家再靠近一点点，', 'Everyone, come a little closer.'],
+              ['对，就站在一起！', 'Yes, stand together just like that.'],
+            )
+          : say(
+              ['再往前走一点，', 'Take one more step forward.'],
+              ['让我看清你！', 'Let me see you clearly.'],
+            );
     } else {
       speaker = 'right';
-      dialogueLines =
-        taskPhaseMs < simpleMode.iSeeYouMs
-          ? ['嘿，拍照前先和我打个招呼！', '给我看一个你喜欢的手势吧。']
-          : GESTURE_TASK.lines;
+      dialogueLines = GESTURE_TASK.lines;
     }
   } else if (state === 'LOCKED') {
     speaker = 'left';
-    dialogueLines = ['太好了，就保持这个姿势！', '看这里，我来数：3、2、1！'];
-  } else if (state === 'RESULT') {
-    speaker = 'left';
-    dialogueLines = ['拍好啦！你的未来照片已经出发。', '扫二维码带走，也去大屏找找自己吧！'];
+    dialogueLines = say(
+      ['太好了，就保持这个姿势！', 'Perfect, hold that pose.'],
+      ['看这里，我来数：3、2、1！', 'Look right here, I will count you in: 3, 2, 1.'],
+    );
   }
 
-  const leftDialogueLines = speaker === 'left'
-    ? dialogueLines
-    : state === 'PERCEIVING'
-      ? ['我看到你啦，保持在画面里！'] as [string]
-      : state === 'LOCKED'
-        ? ['很好，就保持住！', '马上为你拍下这一刻。'] as [string, string]
-        : null;
-  const rightDialogueLines = speaker === 'right'
-    ? dialogueLines
-    : state === 'PERCEIVING'
-      ? GESTURE_TASK.lines
-      : null;
+  const dialoguePanels: DialoguePanel[] = [];
+  if (speaker && dialogueLines) {
+    dialoguePanels.push({
+      side: speaker,
+      lines: dialogueLines,
+      task:
+        (state === 'PERCEIVING' && phaseHeldMs >= taskStartsAt) || lockedConfirming
+          ? {
+              success: lockedConfirming,
+              labelZh: lockedConfirming ? '识别成功' : GESTURE_TASK.nameZh,
+              labelEn: lockedConfirming ? 'Gesture recognized' : GESTURE_TASK.nameEn,
+            }
+          : undefined,
+    });
+  }
+  const dialogueLiveText = dialoguePanels
+    .flatMap((panel) => panel.lines.flatMap((line) => [line.zh, line.en]))
+    .join(' ');
 
   return (
     <main
@@ -506,15 +547,49 @@ export default function BoothPage() {
             className="blink-video blink-video-left"
             src={leftVideoSrc}
             loop={leftVideoLoops}
+            pingPong={leftVideoSrc === BOOTH_VIDEO.idle}
+            holdAtEnd={leftVideoHoldAtEnd}
           />
         </div>
 
-        {leftDialogueLines && state !== 'COUNTDOWN' && (
+        {dialoguePanels.length > 0 && state !== 'COUNTDOWN' && (
           <div
-            className={`blink-dialogue speaker-left state-${state.toLowerCase()}`}
-            key={`${state}-left`}
+            className={`blink-dialogue state-${state.toLowerCase()} ${dialoguePanels.length > 1 ? 'has-two-speakers' : 'has-one-speaker'}`}
+            key={`${state}-dialogue`}
           >
-            {leftDialogueLines.map((line) => <p key={line}>{line}</p>)}
+            {dialoguePanels.map((panel) => (
+              <section
+                key={panel.side}
+                className={`dialogue-panel speaker-${panel.side}`}
+              >
+                {panel.lines.map((line, index) => (
+                  <p key={`${panel.side}-${index}`}>
+                    <strong lang="zh-CN">{line.zh}</strong>
+                    <span lang="en">{line.en}</span>
+                  </p>
+                ))}
+                {panel.task && (
+                  <div className={`gesture-task ${panel.task.success ? 'is-success' : ''}`}>
+                    <span aria-hidden="true">{panel.task.success ? '✓' : GESTURE_TASK.icon}</span>
+                    <div>
+                      <strong lang="zh-CN">{panel.task.labelZh}</strong>
+                      <small lang="en">{panel.task.labelEn}</small>
+                    </div>
+                  </div>
+                )}
+              </section>
+            ))}
+            {dialoguePanels.length > 1 ? (
+              <>
+                <i className="dialogue-tail tail-left" aria-hidden="true" />
+                <i className="dialogue-tail tail-right" aria-hidden="true" />
+              </>
+            ) : (
+              <i
+                className={`dialogue-tail ${dialoguePanels[0]?.side === 'right' ? 'tail-right' : 'tail-left'}`}
+                aria-hidden="true"
+              />
+            )}
           </div>
         )}
 
@@ -522,6 +597,27 @@ export default function BoothPage() {
           <video ref={videoRef} muted playsInline className="camera-feed" />
           <div className="mirror-grade" />
           <div className="mirror-noise" />
+
+          {(state === 'INTRO' || state === 'PERCEIVING' || state === 'LOCKED' || state === 'COUNTDOWN') && (
+            <div className="camera-look-hint" aria-hidden="true">
+              <span className="camera-look-dot" />
+              <strong>请看镜头</strong>
+              <small>LOOK AT THE CAMERA</small>
+            </div>
+          )}
+
+          <div className={`blink-slot blink-right ${rightVideoSrc ? 'is-visible' : ''}`}>
+            {rightVideoSrc && (
+              <TransparentCharacterVideo
+                key={`${rightVideoSrc}-${state}`}
+                className="blink-video blink-video-right"
+                src={rightVideoSrc}
+                loop={rightVideoLoops}
+                pingPong={state === 'PERCEIVING'}
+                freezeAt={rightVideoFreezeAt}
+              />
+            )}
+          </div>
 
           <header className="mirror-header">
             <div className="mirror-brand">
@@ -538,35 +634,6 @@ export default function BoothPage() {
             <i className="corner bottom-left" />
             <i className="corner bottom-right" />
           </div>
-
-          <div className={`blink-slot blink-right ${rightVideoSrc ? 'is-visible' : ''}`}>
-            {rightVideoSrc && (
-              <TransparentCharacterVideo
-                key={rightVideoSrc}
-                className="blink-video blink-video-right"
-                src={rightVideoSrc}
-                loop={rightVideoLoops}
-              />
-            )}
-          </div>
-
-          {rightDialogueLines && state !== 'COUNTDOWN' && (
-            <div
-              className={`blink-dialogue speaker-right state-${state.toLowerCase()}`}
-              key={`${state}-right`}
-            >
-              {rightDialogueLines.map((line) => (
-                <p key={line}>{line}</p>
-              ))}
-              {((state === 'PERCEIVING' && phaseHeldMs >= taskStartsAt) ||
-                lockedConfirming) && (
-                <div className={`gesture-task ${lockedConfirming ? 'is-success' : ''}`}>
-                  <span aria-hidden="true">{lockedConfirming ? '✓' : GESTURE_TASK.icon}</span>
-                  <strong>{lockedConfirming ? '识别成功' : GESTURE_TASK.name}</strong>
-                </div>
-              )}
-            </div>
-          )}
 
           {state === 'COUNTDOWN' && (
             <strong className="blink-countdown" key={engine?.countdown}>
@@ -591,30 +658,31 @@ export default function BoothPage() {
             </div>
           )}
 
-          {state === 'CAPTURE' && capturedImage && !error && uploadStage && (
-            <aside className="photo-claim-card is-preparing" role="status">
-              <div className="qr-placeholder" aria-hidden="true">
-                <i />
-              </div>
-              <div>
-                <strong>请拿出手机准备扫码</strong>
-                <span>二维码马上会出现在这里</span>
-                <small>{UPLOAD_STAGE_COPY[uploadStage]} · {uploadElapsedSeconds} 秒</small>
-              </div>
-            </aside>
-          )}
-
-          {state === 'RESULT' && claimQr && portrait?.shortCode && (
-            <aside className="photo-claim-card" aria-label="扫码下载照片">
-              <img src={claimQr} alt="照片下载二维码" />
-              <div>
-                <strong>扫码下载照片</strong>
-                <span>照片编号 {portrait.shortCode}</span>
-                <small>请在 {formatRemainingTime(qrSecondsRemaining)} 内扫码保存</small>
-              </div>
-            </aside>
-          )}
         </div>
+
+        {state === 'CAPTURE' && capturedImage && !error && uploadStage && (
+          <aside className="photo-claim-card is-preparing" role="status">
+            <div className="photo-claim-copy">
+              <strong>请拿出手机准备扫码</strong>
+              <span>二维码马上会出现在这里</span>
+              <small>{UPLOAD_STAGE_COPY[uploadStage]} · {uploadElapsedSeconds} 秒</small>
+            </div>
+            <div className="qr-placeholder" aria-hidden="true">
+              <i />
+            </div>
+          </aside>
+        )}
+
+        {state === 'RESULT' && claimQr && portrait?.shortCode && (
+          <aside className="photo-claim-card" aria-label="扫码下载照片">
+            <div className="photo-claim-copy">
+              <strong>扫码下载照片</strong>
+              <span>照片编号 {portrait.shortCode}</span>
+              <small>请在 {formatRemainingTime(qrSecondsRemaining)} 内扫码保存</small>
+            </div>
+            <img src={claimQr} alt="照片下载二维码" />
+          </aside>
+        )}
 
         {(engine?.perception.warning || error) && state !== 'RESULT' && (
           <div className="booth-error">
@@ -630,7 +698,7 @@ export default function BoothPage() {
         <div className="sr-only" aria-live="polite">
           {state === 'COUNTDOWN'
             ? engine?.countdown ?? 3
-            : dialogueLines?.join(' ')}
+            : dialogueLiveText}
         </div>
 
         {debug && engine && (

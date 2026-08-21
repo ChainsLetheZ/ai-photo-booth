@@ -103,7 +103,7 @@ function fallbackTaglineTargets(tagline: string): FinalePixelTarget[] {
   // The guest photos deliberately form the line in the physical centre of the
   // LED wall. The first-frame camera is calibrated to meet it here before it
   // pulls the title into the authored upper-right position.
-  context.font = '900 172px "PingFang SC", "Microsoft YaHei", "Noto Sans SC", sans-serif';
+  context.font = '900 220px "PingFang SC", "Microsoft YaHei", "Noto Sans SC", sans-serif';
   context.textAlign = 'center';
   context.textBaseline = 'middle';
   lines.forEach((line) => context.fillText(line, canvas.width / 2, canvas.height / 2));
@@ -153,11 +153,18 @@ export default function WallFinaleSequence({
   );
   useEffect(() => {
     let cancelled = false;
-    // The final video places its headline in the upper right. The guest
-    // portraits must still form it in the centre, before the virtual camera
-    // pulls back into that authored composition.
-    const targets = fallbackTaglineTargets(tagline);
-    if (!cancelled) setPixelTargets(targets);
+    // Wait for the Chinese font before sampling the mask. Sampling too early
+    // can rasterise a fallback font with different glyph bounds and make the
+    // photos lose the eight-character silhouette.
+    const refreshTargets = () => {
+      const targets = fallbackTaglineTargets(tagline);
+      if (!cancelled) setPixelTargets(targets);
+    };
+    if (typeof document !== 'undefined' && document.fonts?.ready) {
+      void document.fonts.ready.then(refreshTargets);
+    } else {
+      refreshTargets();
+    }
     return () => { cancelled = true; };
   }, [tagline]);
   // These are the physical images currently visible in the river — not a
@@ -208,6 +215,44 @@ export default function WallFinaleSequence({
     root.style.setProperty('--finale-accent', accent);
   }, [field, accent]);
 
+  useEffect(() => {
+    if (!active || typeof window === 'undefined') return;
+    const AudioContextCtor =
+      window.AudioContext ??
+      (window as typeof window & { webkitAudioContext?: typeof AudioContext })
+        .webkitAudioContext;
+    if (!AudioContextCtor) return;
+
+    // A short, airy sequence gives the photo-to-letter gathering a clear
+    // sonic cue. It is scheduled once per Space-triggered finale, not once
+    // per animation frame, and remains silent if the browser blocks audio.
+    const context = new AudioContextCtor();
+    const master = context.createGain();
+    master.gain.setValueAtTime(0.0001, context.currentTime);
+    master.gain.exponentialRampToValueAtTime(0.075, context.currentTime + 0.08);
+    master.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + 3.25);
+    master.connect(context.destination);
+    const notes = [220, 247, 277, 330, 370, 415, 494, 554, 622, 740, 831, 988];
+    notes.forEach((frequency, index) => {
+      const oscillator = context.createOscillator();
+      const gain = context.createGain();
+      const start = context.currentTime + 0.06 + index * 0.22;
+      oscillator.type = 'sine';
+      oscillator.frequency.setValueAtTime(frequency, start);
+      gain.gain.setValueAtTime(0.0001, start);
+      gain.gain.exponentialRampToValueAtTime(0.18, start + 0.025);
+      gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.19);
+      oscillator.connect(gain);
+      gain.connect(master);
+      oscillator.start(start);
+      oscillator.stop(start + 0.2);
+    });
+    void context.resume().catch(() => undefined);
+    return () => {
+      void context.close().catch(() => undefined);
+    };
+  }, [active]);
+
   useLayoutEffect(() => {
     const root = rootRef.current;
     if (!root || cards.length === 0) return;
@@ -239,6 +284,10 @@ export default function WallFinaleSequence({
       root.style.setProperty('--tagline-blur', `${frame.taglineBlurPx.toFixed(2)}px`);
       root.style.setProperty('--tagline-opacity', frame.taglineOpacity.toFixed(3));
       root.style.setProperty('--kv-opacity', frame.kvOpacity.toFixed(3));
+      // The authored KV is already underneath the moving photos. Its title
+      // stays covered until the final retreat, then the cover dissolves away
+      // instead of introducing a second background scene.
+      root.style.setProperty('--title-mask-opacity', (1 - frame.taglineOpacity).toFixed(3));
       root.style.setProperty('--tagline-scale', frame.taglineScale.toFixed(4));
       root.style.setProperty('--halo-opacity', frame.haloOpacity.toFixed(3));
       root.style.setProperty('--flash-opacity', frame.flashOpacity.toFixed(3));
@@ -299,6 +348,7 @@ export default function WallFinaleSequence({
     <div ref={rootRef} className={`finale-seq ${active ? 'is-running' : ''}`} aria-hidden="true">
       <div className="finale-seq-field" />
       <img className="finale-seq-kv" src={FINALE_FIRST_FRAME_URL} alt="" />
+      <div className="finale-seq-title-mask" />
       <div className="finale-seq-pulse" />
 
       <div ref={mosaicRef} className="finale-seq-cards">

@@ -47,6 +47,24 @@
   will-change: opacity, transform;
 }
 
+/* The first frame contains the final upper-right headline. Cover only that
+   authored title while the guest photos form the same words in the centre;
+   the cover fades with the final KV hand-off. The Bosch logo and the light
+   field remain visible underneath from the very first arriving photo. */
+.finale-seq-title-mask {
+  position: absolute;
+  z-index: 4;
+  top: 0;
+  left: 16%;
+  width: 72%;
+  height: 31%;
+  opacity: var(--title-mask-opacity, 1);
+  pointer-events: none;
+  background:
+    linear-gradient(180deg, rgba(2, 8, 12, .98) 0%, rgba(8, 12, 14, .92) 64%, rgba(11, 16, 17, .18) 100%);
+  transition: opacity 180ms ease;
+}
+
 /* The perception sweep. One soft vertical band crossing the grid once. */
 .finale-seq-pulse {
   position: absolute;

@@ -377,12 +377,12 @@ export default function WallPage() {
     return () => window.clearTimeout(timer);
   }, [finale]);
 
-  const riverActive = !assembled && formation === 'scroll' && records.length > 0;
-  // During the actual gathering, keep the live river moving behind the cards.
-  // The finale cards therefore peel directly from the wall rather than
-  // appearing after a blackout. The river fades only once the word is formed.
-  const riverVisibleDuringFinale =
-    finale === 'freeze' || finale === 'converge';
+  // Keep the same live river mounted throughout the finale. The photos that
+  // form the headline must peel from their current wall positions; switching
+  // to a new scene on Space makes the movement read as a hard cut.
+  const riverActive = formation === 'scroll' && records.length > 0;
+  // The river remains visible until the final authored KV/title hand-off.
+  const riverVisibleDuringFinale = finale !== null && finale !== 'tagline';
   const toggleFinale = useCallback(() => {
     if (finale) {
       setFinale(null);

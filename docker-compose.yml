@@ -1,0 +1,31 @@
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      WALL_DATA_FILE: /app/runtime/wall-entries.json
+      PHOTO_BOOTH_UPLOAD_TOKEN: ${PHOTO_BOOTH_UPLOAD_TOKEN}
+    volumes:
+      - photo_data:/app/runtime
+
+  caddy:
+    image: caddy:2.8-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      PUBLIC_DOMAIN: ${PUBLIC_DOMAIN}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - app
+
+volumes:
+  photo_data:
+  caddy_data:
+  caddy_config:

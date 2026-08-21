@@ -37,12 +37,12 @@ export interface FinaleTiming {
 }
 
 export const DEFAULT_FINALE_TIMING: FinaleTiming = {
-  freezeMs: 700,
-  // A clear, layered gathering rather than a single visual collapse.
-  convergeMs: 5200,
-  pulseMs: 1200,
-  retreatMs: 1800,
-  taglineMs: 1500,
+  freezeMs: 420,
+  // Keep the gathering legible, but do not make guests wait for the word.
+  convergeMs: 3600,
+  pulseMs: 900,
+  retreatMs: 1400,
+  taglineMs: 1200,
 };
 
 export const FINALE_PHASE_ORDER: FinalePhase[] = [
@@ -356,9 +356,6 @@ export function finaleFrameAt(
   // First dissolve the clean first-frame title in underneath the photo title.
   // Only after that exact-position hand-off has settled does the camera move.
   const frameReveal = easeOutCubic(clamp(retreatP / 0.35, 0, 1));
-  const pullbackEase = easeInOutCubic(
-    clamp((retreatP - 0.42) / 0.58, 0, 1),
-  );
   const photoDissolve = easeInOutCubic(
     clamp((retreatP - 0.04) / 0.38, 0, 1),
   );
@@ -424,17 +421,6 @@ export function finaleFrameAt(
   // The shrink now belongs to each real photo. Keeping the shared stage at
   // scale 1 avoids multiplying that shrink and producing giant, clipped cards.
   const cameraScale = 1;
-  const kvScale =
-    FINALE_VIDEO_FRAME_GEOMETRY.focusScale +
-    (1 - FINALE_VIDEO_FRAME_GEOMETRY.focusScale) * pullbackEase;
-  const focusTranslateX =
-    FINALE_VIDEO_FRAME_GEOMETRY.photoHeadlineCenterXUnit -
-    FINALE_VIDEO_FRAME_GEOMETRY.headlineCenterXUnit *
-      FINALE_VIDEO_FRAME_GEOMETRY.focusScale;
-  const focusTranslateY =
-    FINALE_VIDEO_FRAME_GEOMETRY.photoHeadlineCenterYUnit -
-    FINALE_VIDEO_FRAME_GEOMETRY.headlineCenterYUnit *
-      FINALE_VIDEO_FRAME_GEOMETRY.focusScale;
   return {
     cards: cardFrames,
     fieldOpacity,
@@ -453,9 +439,12 @@ export function finaleFrameAt(
     cameraXUnit: 0,
     cameraYUnit: 0,
     kvRevealXUnit: 1,
-    kvOpacity: frameReveal,
-    kvScale,
-    kvTranslateXUnit: focusTranslateX * (1 - pullbackEase),
-    kvTranslateYUnit: focusTranslateY * (1 - pullbackEase),
+    // Keep the real KV underneath the entire gathering. Only its authored
+    // headline is masked by the view layer until the final retreat, so Space
+    // never swaps to a separate scene before the photos begin moving.
+    kvOpacity: 1,
+    kvScale: 1,
+    kvTranslateXUnit: 0,
+    kvTranslateYUnit: 0,
   };
 }
